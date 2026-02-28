@@ -81,5 +81,8 @@ class AMMApiClient:
     async def get_market(self, market_id: str) -> dict:
         return await self._request("GET", f"/markets/{market_id}")
 
+    async def get_orderbook(self, market_id: str) -> dict:
+        return await self._request("GET", f"/markets/{market_id}/orderbook")
+
     async def close(self) -> None:
         await self._client.aclose()

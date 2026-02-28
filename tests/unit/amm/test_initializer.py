@@ -95,7 +95,11 @@ class TestAMMInitializer:
         loader.load_market.assert_called_once_with("mkt-1")
 
     async def test_initialize_fetches_balance_and_positions(self) -> None:
-        api = _make_api()
+        # Use existing positions so mint is skipped → exactly one fetch each
+        api = _make_api(positions={
+            "data": {"yes_volume": 500, "no_volume": 500,
+                     "yes_cost_sum_cents": 25000, "no_cost_sum_cents": 25000}
+        })
         init = AMMInitializer(
             token_manager=_make_token_manager(),
             api=api,
@@ -122,13 +126,22 @@ class TestAMMInitializer:
             "data": {"yes_volume": 0, "no_volume": 0,
                      "yes_cost_sum_cents": 0, "no_cost_sum_cents": 0}
         })
-        # After mint, re-fetch returns positions
-        cache = AsyncMock()
-        cache.get.return_value = Inventory(
-            cash_cents=900_000, yes_volume=1000, no_volume=1000,
-            yes_cost_sum_cents=50000, no_cost_sum_cents=50000,
-            yes_pending_sell=0, no_pending_sell=0, frozen_balance_cents=0,
+        init = AMMInitializer(
+            token_manager=_make_token_manager(),
+            api=api,
+            config_loader=_make_config_loader(),
+            inventory_cache=_make_cache(),
         )
+        await init.initialize(["mkt-1"])
+        api.mint.assert_called_once()
+
+    async def test_initialize_refetches_inventory_from_api_after_mint(self) -> None:
+        """After mint, balance+positions must be re-fetched from API, not from cache."""
+        api = _make_api(positions={
+            "data": {"yes_volume": 0, "no_volume": 0,
+                     "yes_cost_sum_cents": 0, "no_cost_sum_cents": 0}
+        })
+        cache = _make_cache()
         init = AMMInitializer(
             token_manager=_make_token_manager(),
             api=api,
@@ -136,7 +149,13 @@ class TestAMMInitializer:
             inventory_cache=cache,
         )
         await init.initialize(["mkt-1"])
-        api.mint.assert_called_once()
+        # With yes_volume=0, mint fires → get_balance + get_positions called twice
+        assert api.get_balance.call_count == 2
+        assert api.get_positions.call_count == 2
+        # Cache is updated twice: once before mint, once after
+        assert cache.set.call_count == 2
+        # Cache.get is NOT used for post-mint re-fetch
+        cache.get.assert_not_called()
 
     async def test_initialize_skips_mint_when_positions_exist(self) -> None:
         api = _make_api(positions={

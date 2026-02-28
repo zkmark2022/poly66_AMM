@@ -66,10 +66,11 @@ class AMMInitializer:
                 )
                 logger.info("Minted %d shares for market %s",
                             market_config.initial_mint_quantity, market_id)
-                # Re-fetch inventory after mint
-                post_mint = await self._inventory_cache.get(market_id)
-                if post_mint is not None:
-                    inventory = post_mint
+                # Re-fetch from API (cache is pre-mint stale) and update cache
+                balance_resp = await self._api.get_balance()
+                positions_resp = await self._api.get_positions(market_id)
+                inventory = self._build_inventory(balance_resp, positions_resp)
+                await self._inventory_cache.set(market_id, inventory)
 
             # Step 8: Create MarketContext
             ctx = MarketContext(

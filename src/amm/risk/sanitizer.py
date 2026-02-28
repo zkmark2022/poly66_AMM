@@ -52,6 +52,18 @@ class OrderSanitizer:
                 # Long NO — suppress SELL YES
                 return None
 
+        # Inventory availability: clamp quantity to what is actually available
+        if intent.side == "YES":
+            available = ctx.inventory.yes_available
+        else:
+            available = ctx.inventory.no_available
+
+        if available <= 0:
+            logger.debug("No %s inventory available — dropping intent", intent.side)
+            return None
+
+        qty = min(intent.quantity, available)
+
         # WIDEN: enforce minimum spread (handled by spread_min_cents in config)
         # No extra filtering needed here; A-S engine handles spread widening
 
@@ -60,7 +72,7 @@ class OrderSanitizer:
             side=intent.side,
             direction=intent.direction,
             price_cents=price,
-            quantity=intent.quantity,
+            quantity=qty,
             reason=intent.reason,
             old_order_id=intent.old_order_id,
         )

@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 async def quote_cycle(
     ctx: MarketContext,
+    api: AMMApiClient,
     poller: TradePoller,
     pricing: ThreeLayerPricing,
     as_engine: ASEngine,
@@ -44,18 +45,28 @@ async def quote_cycle(
     """Single quote cycle for one market: Sync → Strategy → Risk → Execute."""
 
     # Step 1: Sync — poll new trades, refresh pending_sell
-    await poller.poll(ctx.market_id)
+    recent_trades = await poller.poll(ctx.market_id)
     fresh = await inventory_cache.get(ctx.market_id)
     if fresh is not None:
         ctx.inventory = fresh
 
-    # Step 2: Strategy — pure computation
+    # Step 2: Strategy — fetch live orderbook, then compute mid-price
+    best_bid = ctx.config.anchor_price_cents - 5
+    best_ask = ctx.config.anchor_price_cents + 5
+    try:
+        ob = await api.get_orderbook(ctx.market_id)
+        ob_data = ob.get("data", ob)
+        best_bid = int(ob_data.get("best_bid", best_bid))
+        best_ask = int(ob_data.get("best_ask", best_ask))
+    except Exception:
+        logger.warning("Orderbook fetch failed for %s — using anchor fallback", ctx.market_id)
+
     mid = pricing.compute(
         phase=ctx.phase.value,
         anchor_price=ctx.config.anchor_price_cents,
-        best_bid=0,
-        best_ask=100,
-        recent_trades=[],
+        best_bid=best_bid,
+        best_ask=best_ask,
+        recent_trades=recent_trades,
     )
 
     tau = ctx.config.remaining_hours_override or 24.0
@@ -163,6 +174,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
         order_mgr = OrderManager(api=api, cache=inventory_cache)
 
         services = {
+            "api": api,
             "poller": poller,
             "pricing": pricing,
             "as_engine": as_engine,

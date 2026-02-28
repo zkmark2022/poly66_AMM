@@ -39,12 +39,23 @@ def _make_ctx(market_id: str = "mkt-1", defense: DefenseLevel = DefenseLevel.NOR
     )
 
 
+def _make_api(
+    orderbook: dict | None = None,
+) -> AsyncMock:
+    api = AsyncMock()
+    api.get_orderbook.return_value = orderbook or {
+        "data": {"best_bid": 48, "best_ask": 52}
+    }
+    return api
+
+
 def _make_services(
     inventory: Inventory | None = None,
     api_orders: list[dict] | None = None,
+    api: AsyncMock | None = None,
 ) -> dict:
     poller = AsyncMock()
-    poller.poll.return_value = 0
+    poller.poll.return_value = []
 
     pricing = ThreeLayerPricing(
         anchor=AnchorPricing(50),
@@ -63,6 +74,7 @@ def _make_services(
     order_mgr.execute_intents = AsyncMock()
 
     return {
+        "api": api or _make_api(),
         "poller": poller,
         "pricing": pricing,
         "as_engine": as_engine,
@@ -90,6 +102,24 @@ class TestQuoteCycle:
         services = _make_services()
         await quote_cycle(ctx, **services)
         services["poller"].poll.assert_called_once_with("mkt-1")
+
+    async def test_cycle_fetches_live_orderbook(self) -> None:
+        """quote_cycle must call get_orderbook to feed live bid/ask into pricing."""
+        ctx = _make_ctx()
+        api = _make_api(orderbook={"data": {"best_bid": 44, "best_ask": 56}})
+        services = _make_services(api=api)
+        await quote_cycle(ctx, **services)
+        api.get_orderbook.assert_called_once_with("mkt-1")
+
+    async def test_cycle_uses_orderbook_fallback_on_error(self) -> None:
+        """If orderbook fetch fails, cycle continues using anchor fallback."""
+        ctx = _make_ctx()
+        api = AsyncMock()
+        api.get_orderbook.side_effect = Exception("network error")
+        services = _make_services(api=api)
+        # Should not raise; fallback kicks in
+        await quote_cycle(ctx, **services)
+        services["order_mgr"].execute_intents.assert_called_once()
 
     async def test_cycle_refreshes_inventory_from_cache(self) -> None:
         ctx = _make_ctx()
@@ -127,12 +157,12 @@ class TestQuoteCycle:
         # poll sets shutdown_requested after first call so loop exits
         call_count = 0
 
-        async def _poll_then_stop(market_id: str) -> int:
+        async def _poll_then_stop(market_id: str) -> list[dict]:
             nonlocal call_count
             call_count += 1
             if call_count >= 1:
                 ctx.shutdown_requested = True
-            return 0
+            return []
 
         services["poller"].poll.side_effect = _poll_then_stop
 

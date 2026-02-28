@@ -14,25 +14,25 @@ class TradePoller:
         self._cursors: dict[str, str] = {}
         self._processed_ids: set[str] = set()
 
-    async def poll(self, market_id: str) -> int:
-        """Poll for new trades, update Redis inventory. Returns count of new trades."""
+    async def poll(self, market_id: str) -> list[dict]:
+        """Poll for new trades, update Redis inventory. Returns new trades processed."""
         cursor = self._cursors.get(market_id, "")
         resp = await self._api.get_trades(cursor=cursor, limit=50)
         trades = resp.get("data", {}).get("trades", [])
 
-        new_count = 0
+        new_trades: list[dict] = []
         for trade in trades:
             trade_id = trade["id"]
             if trade_id in self._processed_ids:
                 continue
             self._processed_ids.add(trade_id)
             await self._apply_trade(market_id, trade)
-            new_count += 1
+            new_trades.append(trade)
 
         if trades:
             self._cursors[market_id] = trades[-1]["id"]
 
-        return new_count
+        return new_trades
 
     async def _apply_trade(self, market_id: str, trade: dict) -> None:
         from src.pm_account.domain.constants import AMM_USER_ID
