@@ -3,11 +3,14 @@
 MVP alternative to Kafka trade_events. See interface contract v1.4 §5.1.
 """
 import logging
+from collections import OrderedDict
 
 from src.amm.cache.inventory_cache import InventoryCache
 from src.amm.connector.api_client import AMMApiClient
 
 logger = logging.getLogger(__name__)
+
+MAX_PROCESSED_IDS = 10_000
 
 
 class TradePoller:
@@ -15,7 +18,12 @@ class TradePoller:
         self._api = api
         self._cache = cache
         self._cursors: dict[str, str] = {}  # market_id → last trade id (cursor)
-        self._processed_ids: set[str] = set()  # deduplication
+        self._processed_ids: OrderedDict[str, None] = OrderedDict()  # bounded deduplication
+
+    def _add_processed_id(self, trade_id: str) -> None:
+        self._processed_ids[trade_id] = None
+        while len(self._processed_ids) > MAX_PROCESSED_IDS:
+            self._processed_ids.popitem(last=False)
 
     async def poll(self, market_id: str) -> int:
         """Poll for new trades, update Redis inventory. Returns count of new trades."""
@@ -29,7 +37,7 @@ class TradePoller:
             if trade_id in self._processed_ids:
                 continue
 
-            self._processed_ids.add(trade_id)
+            self._add_processed_id(trade_id)
             await self._apply_trade(market_id, trade)
             new_count += 1
 

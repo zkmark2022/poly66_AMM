@@ -42,9 +42,7 @@ class AMMApiClient:
 
         # Handle 429 Too Many Requests — rate limited
         if resp.status_code == 429 and _retry_count < MAX_RETRY_ATTEMPTS:
-            retry_after = int(
-                resp.headers.get("Retry-After", resp.headers.get("X-RateLimit-Reset", "1"))
-            )
+            retry_after = int(resp.headers.get("Retry-After", "1"))
             # Exponential backoff: retry_after * 2^attempt, cap at 30s
             backoff = min(retry_after * (2**_retry_count), 30)
             logger.warning(
