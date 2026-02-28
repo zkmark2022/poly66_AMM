@@ -6,6 +6,19 @@ from src.amm.config.models import MarketConfig
 
 logger = logging.getLogger(__name__)
 
+# Numeric severity: higher = more restrictive. StrEnum comparison is lexicographic,
+# so explicit mapping is required for correct escalation logic.
+_SEVERITY: dict[DefenseLevel, int] = {
+    DefenseLevel.NORMAL: 0,
+    DefenseLevel.WIDEN: 1,
+    DefenseLevel.ONE_SIDE: 2,
+    DefenseLevel.KILL_SWITCH: 3,
+}
+
+
+def _sev(level: DefenseLevel) -> int:
+    return _SEVERITY[level]
+
 
 class DefenseStack:
     def __init__(self, config: MarketConfig) -> None:
@@ -19,12 +32,12 @@ class DefenseStack:
         """Evaluate current market conditions and return defense level."""
         target = self._determine_target(inventory_skew, daily_pnl, market_active)
 
-        if target > self.current_level:
+        if _sev(target) > _sev(self.current_level):
             self.current_level = target
             self._cooldown_counter = 0
             logger.warning("Defense ESCALATED to %s (skew=%.2f, pnl=%d)",
                            target, inventory_skew, daily_pnl)
-        elif target < self.current_level:
+        elif _sev(target) < _sev(self.current_level):
             self._cooldown_counter += 1
             if self._cooldown_counter >= self._config.defense_cooldown_cycles:
                 self.current_level = target

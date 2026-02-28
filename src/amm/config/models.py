@@ -63,6 +63,7 @@ class MarketConfig:
 
     # Timing
     remaining_hours_override: float | None = None
+    quote_interval_seconds: float = 2.0
 
     @property
     def gamma(self) -> float:
