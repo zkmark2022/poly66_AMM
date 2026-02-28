@@ -6,6 +6,15 @@ from src.amm.models.enums import DefenseLevel
 
 logger = logging.getLogger(__name__)
 
+# StrEnum alphabetical order != declaration order (K < N < O < W), so we
+# maintain an explicit severity mapping for correct escalation comparisons.
+_SEVERITY: dict[DefenseLevel, int] = {
+    DefenseLevel.NORMAL: 0,
+    DefenseLevel.WIDEN: 1,
+    DefenseLevel.ONE_SIDE: 2,
+    DefenseLevel.KILL_SWITCH: 3,
+}
+
 
 class DefenseStack:
     """Evaluates market conditions and returns the appropriate defense level.
@@ -27,7 +36,10 @@ class DefenseStack:
         """Evaluate current market conditions and return defense level."""
         target = self._determine_target(inventory_skew, daily_pnl, market_active)
 
-        if target > self.current_level:
+        target_sev = _SEVERITY[target]
+        current_sev = _SEVERITY[self.current_level]
+
+        if target_sev > current_sev:
             # Escalation is immediate
             self.current_level = target
             self._cooldown_counter = 0
@@ -37,7 +49,7 @@ class DefenseStack:
                 inventory_skew,
                 daily_pnl,
             )
-        elif target < self.current_level:
+        elif target_sev < current_sev:
             # De-escalation requires cooldown
             self._cooldown_counter += 1
             if self._cooldown_counter >= self._config.defense_cooldown_cycles:
