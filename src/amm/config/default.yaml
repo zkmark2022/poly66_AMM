@@ -1,0 +1,33 @@
+global:
+  base_url: "http://localhost:8000/api/v1"
+  redis_url: "redis://localhost:6379/0"
+  amm_username: "amm_market_maker"
+  quote_interval_seconds: 2.0
+  reconcile_interval_seconds: 300.0
+  trade_poll_interval_seconds: 2.0
+  balance_poll_interval_seconds: 30.0
+  max_concurrent_markets: 50
+  log_level: "INFO"
+
+markets:
+  default:
+    gamma_tier: "MID"
+    kappa: 1.5
+    anchor_price_cents: 50
+    spread_min_cents: 2
+    spread_max_cents: 20
+    initial_mint_quantity: 1000
+    auto_reinvest_enabled: true
+    auto_merge_threshold: 0.3
+    gradient_levels: 3
+    gradient_quantity_decay: 0.5
+    gradient_price_step_cents: 1
+    max_daily_loss_cents: 10000
+    max_per_market_loss_cents: 5000
+    inventory_skew_widen: 0.3
+    inventory_skew_one_side: 0.6
+    inventory_skew_kill: 0.8
+    widen_factor: 1.5
+    defense_cooldown_cycles: 5
+    exploration_duration_hours: 24.0
+    stabilization_volume_threshold: 100
