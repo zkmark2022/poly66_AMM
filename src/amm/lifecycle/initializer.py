@@ -1,6 +1,7 @@
 """AMM startup initializer: login → config → inventory sync → initial mint."""
 import logging
 import time
+from copy import deepcopy
 
 from src.amm.cache.inventory_cache import InventoryCache
 from src.amm.config.models import MarketConfig
@@ -93,7 +94,7 @@ class AMMInitializer:
                 active_orders={},
                 defense_level=DefenseLevel.NORMAL,
                 daily_pnl_cents=0,
-                session_start_inventory=inventory,
+                session_start_inventory=deepcopy(inventory),
                 last_quote_at=now,
                 last_reconcile_at=now,
             )

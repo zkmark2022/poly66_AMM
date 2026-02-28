@@ -35,14 +35,14 @@ class InventoryCache:
         if not data:
             return None
         return Inventory(
-            cash_cents=int(data[b"cash_cents"]),
-            yes_volume=int(data[b"yes_volume"]),
-            no_volume=int(data[b"no_volume"]),
-            yes_cost_sum_cents=int(data[b"yes_cost_sum_cents"]),
-            no_cost_sum_cents=int(data[b"no_cost_sum_cents"]),
-            yes_pending_sell=int(data[b"yes_pending_sell"]),
-            no_pending_sell=int(data[b"no_pending_sell"]),
-            frozen_balance_cents=int(data[b"frozen_balance_cents"]),
+            cash_cents=int(data.get(b"cash_cents", 0)),
+            yes_volume=int(data.get(b"yes_volume", 0)),
+            no_volume=int(data.get(b"no_volume", 0)),
+            yes_cost_sum_cents=int(data.get(b"yes_cost_sum_cents", 0)),
+            no_cost_sum_cents=int(data.get(b"no_cost_sum_cents", 0)),
+            yes_pending_sell=int(data.get(b"yes_pending_sell", 0)),
+            no_pending_sell=int(data.get(b"no_pending_sell", 0)),
+            frozen_balance_cents=int(data.get(b"frozen_balance_cents", 0)),
         )
 
     async def set_pending_sell(
