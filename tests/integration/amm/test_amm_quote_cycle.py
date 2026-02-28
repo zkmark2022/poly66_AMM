@@ -117,24 +117,27 @@ class TestQuoteCycle:
         services["order_mgr"].execute_intents.assert_not_called()
 
     async def test_cycle_handles_api_error_gracefully(self) -> None:
-        """API failure in execute_intents doesn't propagate from run_market."""
+        """API failure in execute_intents is caught — run_market doesn't crash."""
         ctx = _make_ctx()
-        # Make it stop after one cycle
-        ctx.shutdown_requested = False
+        ctx.config = MarketConfig(market_id="mkt-1", quote_interval_seconds=0.01,
+                                  remaining_hours_override=24.0)
         services = _make_services()
         services["order_mgr"].execute_intents.side_effect = Exception("API error")
 
-        # run_market catches and logs errors, loop exits on shutdown_requested
-        async def _stop_after_one(market_id: str) -> int:
-            ctx.shutdown_requested = True
+        # poll sets shutdown_requested after first call so loop exits
+        call_count = 0
+
+        async def _poll_then_stop(market_id: str) -> int:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 1:
+                ctx.shutdown_requested = True
             return 0
 
-        services["poller"].poll.side_effect = _stop_after_one
+        services["poller"].poll.side_effect = _poll_then_stop
 
-        # Should not raise
-        import asyncio
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(run_market(ctx, services), timeout=0.5)
+        # Should complete without raising (run_market catches errors internally)
+        await run_market(ctx, services)
 
     async def test_cycle_updates_defense_level_on_context(self) -> None:
         ctx = _make_ctx()
