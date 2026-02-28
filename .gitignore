@@ -1,2 +1,10 @@
 .DS_Store
 *.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
