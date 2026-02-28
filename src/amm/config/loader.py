@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import fields as dataclass_fields
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -35,8 +36,8 @@ class ConfigLoader:
 
     async def load_global(self) -> GlobalConfig:
         data = self._load_yaml().get("global", {})
-        cfg = GlobalConfig(**{k: v for k, v in data.items()
-                              if hasattr(GlobalConfig, k)})
+        _global_fields = {f.name for f in dataclass_fields(GlobalConfig)}
+        cfg = GlobalConfig(**{k: v for k, v in data.items() if k in _global_fields})
 
         if self._redis:
             try:
@@ -57,9 +58,9 @@ class ConfigLoader:
         override = markets_data.get(market_id, {})
         data = {**base, **override}
 
+        _market_fields = {f.name for f in dataclass_fields(MarketConfig)} - {"market_id"}
         cfg = MarketConfig(market_id=market_id,
-                           **{k: v for k, v in data.items()
-                              if hasattr(MarketConfig, k) and k != "market_id"})
+                           **{k: v for k, v in data.items() if k in _market_fields})
 
         if self._redis:
             try:

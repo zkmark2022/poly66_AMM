@@ -133,7 +133,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     redis_client = create_redis_client(redis_url)
     http_client = httpx.AsyncClient(base_url=base_url, timeout=10.0)
     token_mgr = TokenManager(base_url, username, password, http_client)
-    api = AMMApiClient(base_url, token_mgr)
+    api = AMMApiClient(base_url, token_mgr, http_client=http_client)
     inventory_cache = InventoryCache(redis_client)
     config_loader = ConfigLoader(redis_client=redis_client)
 

@@ -30,13 +30,13 @@ class OrderManager:
     async def execute_intents(self, intents: list[OrderIntent], market_id: str) -> None:
         """Execute order intents by comparing with current active orders."""
         # Simple strategy: cancel all stale, place/replace new
-        target_keys = {(i.side, i.price_cents) for i in intents}
-        active_keys = {(o.side, o.price_cents): oid
+        target_keys = {(i.side, i.direction, i.price_cents) for i in intents}
+        active_keys = {(o.side, o.direction, o.price_cents): oid
                        for oid, o in self.active_orders.items()}
 
         # Cancel orders not in target
-        to_cancel = [oid for (s, p), oid in active_keys.items()
-                     if (s, p) not in target_keys]
+        to_cancel = [oid for (s, d, p), oid in active_keys.items()
+                     if (s, d, p) not in target_keys]
         for oid in to_cancel:
             try:
                 await self._api.cancel_order(oid)
@@ -46,7 +46,7 @@ class OrderManager:
 
         # Place new orders
         for intent in intents:
-            key = (intent.side, intent.price_cents)
+            key = (intent.side, intent.direction, intent.price_cents)
             if key not in active_keys:
                 try:
                     resp = await self._api.place_order({
@@ -73,11 +73,11 @@ class OrderManager:
     def get_pending_sells(self) -> tuple[int, int]:
         yes_pending = sum(
             o.remaining_quantity for o in self.active_orders.values()
-            if o.side == "YES"
+            if o.side == "YES" and o.direction == "SELL"
         )
         no_pending = sum(
             o.remaining_quantity for o in self.active_orders.values()
-            if o.side == "NO"
+            if o.side == "NO" and o.direction == "SELL"
         )
         return yes_pending, no_pending
 

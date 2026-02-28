@@ -66,9 +66,16 @@ class TradePoller:
                                          cash_delta=-(trade_value + fee),
                                          yes_cost_delta=trade_value)
             else:
+                # Release proportional acquisition cost, not sale price
+                inv = await self._cache.get(market_id)
+                if inv and inv.yes_volume > 0:
+                    avg_cost = inv.yes_cost_sum_cents / inv.yes_volume
+                    cost_basis = round(avg_cost * quantity)
+                else:
+                    cost_basis = trade_value
                 await self._cache.adjust(market_id, yes_delta=-quantity,
                                          cash_delta=(trade_value - fee),
-                                         yes_cost_delta=-trade_value)
+                                         yes_cost_delta=-cost_basis)
         elif scenario == "TRANSFER_NO":
             no_price = 100 - price
             trade_value = no_price * quantity
@@ -77,6 +84,13 @@ class TradePoller:
                                          cash_delta=-(trade_value + fee),
                                          no_cost_delta=trade_value)
             else:
+                # Release proportional acquisition cost, not sale price
+                inv = await self._cache.get(market_id)
+                if inv and inv.no_volume > 0:
+                    avg_cost = inv.no_cost_sum_cents / inv.no_volume
+                    cost_basis = round(avg_cost * quantity)
+                else:
+                    cost_basis = trade_value
                 await self._cache.adjust(market_id, no_delta=-quantity,
                                          cash_delta=(trade_value - fee),
-                                         no_cost_delta=-trade_value)
+                                         no_cost_delta=-cost_basis)

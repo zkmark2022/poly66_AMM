@@ -13,10 +13,12 @@ MAX_RETRY_ATTEMPTS = 3
 
 
 class AMMApiClient:
-    def __init__(self, base_url: str, token_manager: TokenManager) -> None:
+    def __init__(self, base_url: str, token_manager: TokenManager,
+                 http_client: httpx.AsyncClient | None = None) -> None:
         self._base_url = base_url
         self._token_manager = token_manager
-        self._client = httpx.AsyncClient(base_url=base_url, timeout=10.0)
+        self._owns_client = http_client is None
+        self._client = http_client or httpx.AsyncClient(base_url=base_url, timeout=10.0)
 
     async def _request(
         self, method: str, path: str, _retry_count: int = 0, **kwargs: Any,
@@ -85,4 +87,5 @@ class AMMApiClient:
         return await self._request("GET", f"/markets/{market_id}/orderbook")
 
     async def close(self) -> None:
-        await self._client.aclose()
+        if self._owns_client:
+            await self._client.aclose()
