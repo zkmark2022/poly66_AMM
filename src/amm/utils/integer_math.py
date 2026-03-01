@@ -13,10 +13,7 @@ def ceiling_div(numerator: int, denominator: int) -> int:
 
 
 def calculate_fee(trade_value_cents: int, fee_bps: int) -> int:
-    """Calculate fee with ceiling rounding. Formula: ⌈value × bps / 10000⌉.
-
-    Aligned with pm_clearing fee formula.
-    """
+    """Calculate fee with ceiling rounding. Formula: ⌈value × bps / 10000⌉."""
     if trade_value_cents == 0:
         return 0
     return (trade_value_cents * fee_bps + 9999) // 10000
