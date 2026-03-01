@@ -207,19 +207,22 @@ class TestKillSwitchBatchCancel:
                 )
             )
 
-            tm = TokenManager(base_url=BASE_URL)
-            tm._access_token = "preset_token"  # bypass login for this test
-            api = AMMApiClient(base_url=BASE_URL, token_manager=tm)
+            async with httpx.AsyncClient(base_url=BASE_URL) as client:
+                tm = TokenManager(base_url=BASE_URL, username="", password="",
+                                  client=client)
+                tm.access_token = "preset_token"  # bypass login for this test
+                api = AMMApiClient(base_url=BASE_URL, token_manager=tm,
+                                   http_client=client)
 
-            # Evaluate — triggers KILL_SWITCH
-            level = ds.evaluate(inventory_skew=0.9, daily_pnl=0, market_active=True)
-            assert level == DefenseLevel.KILL_SWITCH
-            assert not level.is_quoting_active
+                # Evaluate — triggers KILL_SWITCH
+                level = ds.evaluate(inventory_skew=0.9, daily_pnl=0, market_active=True)
+                assert level == DefenseLevel.KILL_SWITCH
+                assert not level.is_quoting_active
 
-            # Business logic: when kill switch fires, cancel all orders
-            if not level.is_quoting_active:
-                result = await api.batch_cancel(MARKET_ID, scope="ALL")
-                assert result["data"]["cancelled_count"] == 4  # type: ignore[index]
+                # Business logic: when kill switch fires, cancel all orders
+                if not level.is_quoting_active:
+                    result = await api.batch_cancel(MARKET_ID, scope="ALL")
+                    assert result["data"]["cancelled_count"] == 4  # type: ignore[index]
 
             assert cancel_route.called
             assert cancel_route.call_count == 1
@@ -228,8 +231,6 @@ class TestKillSwitchBatchCancel:
             body = json.loads(cancel_route.calls.last.request.content)
             assert body["market_id"] == MARKET_ID
             assert body["cancel_scope"] == "ALL"
-
-            await api.close()
 
     async def test_kill_switch_is_quoting_active_false(self) -> None:
         """DefenseLevel.KILL_SWITCH.is_quoting_active must be False."""
@@ -249,20 +250,21 @@ class TestKillSwitchBatchCancel:
                 )
             )
 
-            tm = TokenManager(base_url=BASE_URL)
-            tm._access_token = "preset_token"
-            api = AMMApiClient(base_url=BASE_URL, token_manager=tm)
+            async with httpx.AsyncClient(base_url=BASE_URL) as client:
+                tm = TokenManager(base_url=BASE_URL, username="", password="",
+                                  client=client)
+                tm.access_token = "preset_token"
+                api = AMMApiClient(base_url=BASE_URL, token_manager=tm,
+                                   http_client=client)
 
-            cfg = MarketConfig(market_id="global", inventory_skew_kill=0.8)
-            ds = DefenseStack(config=cfg)
+                cfg = MarketConfig(market_id="global", inventory_skew_kill=0.8)
+                ds = DefenseStack(config=cfg)
 
-            level = ds.evaluate(inventory_skew=0.95, daily_pnl=0, market_active=True)
-            assert level == DefenseLevel.KILL_SWITCH
+                level = ds.evaluate(inventory_skew=0.95, daily_pnl=0, market_active=True)
+                assert level == DefenseLevel.KILL_SWITCH
 
-            # Cancel all markets when kill switch fires
-            for mid in market_ids:
-                await api.batch_cancel(mid, scope="ALL")
+                # Cancel all markets when kill switch fires
+                for mid in market_ids:
+                    await api.batch_cancel(mid, scope="ALL")
 
             assert cancel_route.call_count == len(market_ids)
-
-            await api.close()

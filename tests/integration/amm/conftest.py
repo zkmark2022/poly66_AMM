@@ -35,7 +35,7 @@ REFRESH_RESPONSE = {
 }
 
 BALANCE_RESPONSE = {
-    "data": {"available_balance": 1_000_000, "frozen_balance": 0}
+    "data": {"balance_cents": 1_000_000, "frozen_balance_cents": 0}
 }
 
 EMPTY_POSITIONS_RESPONSE = {
@@ -203,13 +203,6 @@ def make_context(
         config=config,
         inventory=inventory,
         phase=Phase.STABILIZATION,
-        mid_price=50,
-        reservation_price=50.0,
-        optimal_spread=2.0,
-        active_orders={},
         defense_level=defense_level,
         daily_pnl_cents=daily_pnl_cents,
-        session_start_inventory=inventory,
-        last_quote_at=0.0,
-        last_reconcile_at=0.0,
     )
