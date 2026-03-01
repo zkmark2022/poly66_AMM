@@ -4,7 +4,6 @@ from enum import StrEnum
 
 class DefenseLevel(StrEnum):
     """Risk defense escalation levels. Order matters — higher = more restrictive."""
-
     NORMAL = "NORMAL"
     WIDEN = "WIDEN"
     ONE_SIDE = "ONE_SIDE"
@@ -17,14 +16,12 @@ class DefenseLevel(StrEnum):
 
 class Phase(StrEnum):
     """AMM strategy phases."""
-
     EXPLORATION = "EXPLORATION"
     STABILIZATION = "STABILIZATION"
 
 
 class QuoteAction(StrEnum):
     """Order intent actions from strategy layer."""
-
     PLACE = "PLACE"
     REPLACE = "REPLACE"
     CANCEL = "CANCEL"

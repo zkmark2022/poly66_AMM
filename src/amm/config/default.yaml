@@ -1,103 +1,33 @@
-# AMM Default Configuration
-# Config handbook v1.3 — all 87+ parameters with documented defaults.
-# Hot-updatable: any parameter can be overridden via Redis key amm:config:{market_id}
-
 global:
   base_url: "http://localhost:8000/api/v1"
   redis_url: "redis://localhost:6379/0"
   amm_username: "amm_market_maker"
-  # amm_password: set via AMM_PASSWORD env var, never in YAML
-
-  # Polling intervals (seconds)
   quote_interval_seconds: 2.0
   reconcile_interval_seconds: 300.0
   trade_poll_interval_seconds: 2.0
   balance_poll_interval_seconds: 30.0
-
-  # Concurrency
   max_concurrent_markets: 50
-
-  # Logging
   log_level: "INFO"
 
-
-market_defaults:
-  # ── Pricing ──────────────────────────────────────────────────────────────
-  # Avellaneda-Stoikov risk aversion coefficient tier.
-  # EARLY=0.1 (low risk aversion, wide participation)
-  # MID=0.3   (balanced, default)
-  # LATE=0.8  (high risk aversion, narrow)
-  # MATURE=1.5 (mature market, very narrow)
-  gamma_tier: "MID"
-
-  # Market depth / order arrival intensity (κ). Higher = tighter spreads.
-  kappa: 1.5
-
-  # Initial anchor price in cents [1, 99]. 50 = 50¢ = even odds.
-  anchor_price_cents: 50
-
-  # Spread bounds in cents
-  spread_min_cents: 2
-  spread_max_cents: 20
-
-  # ── Inventory ────────────────────────────────────────────────────────────
-  # Shares to mint at startup (YES + NO pairs)
-  initial_mint_quantity: 1000
-
-  # Auto re-invest trading revenue into new YES/NO pairs
-  auto_reinvest_enabled: true
-
-  # Skew threshold below which auto-merge activates (|q| < threshold)
-  auto_merge_threshold: 0.3
-
-  # ── Gradient Ladder ──────────────────────────────────────────────────────
-  # Number of price levels per side (bid and ask each get this many levels)
-  gradient_levels: 3
-
-  # Quantity decay factor per level (level_n qty = level_0 * decay^n)
-  gradient_quantity_decay: 0.5
-
-  # Price step between consecutive gradient levels (cents)
-  gradient_price_step_cents: 1
-
-  # ── Risk: Loss Limits ────────────────────────────────────────────────────
-  # Maximum cumulative daily P&L loss (cents). Triggers KILL_SWITCH.
-  max_daily_loss_cents: 10000       # $100.00
-
-  # Maximum per-market loss (cents). Triggers KILL_SWITCH for that market.
-  max_per_market_loss_cents: 5000   # $50.00
-
-  # ── Risk: Inventory Skew Thresholds ──────────────────────────────────────
-  # |q| >= widen → WIDEN defense (spread × widen_factor)
-  inventory_skew_widen: 0.3
-
-  # |q| >= one_side → ONE_SIDE defense (quote only favorable side)
-  inventory_skew_one_side: 0.6
-
-  # |q| >= kill → KILL_SWITCH (halt all quoting)
-  inventory_skew_kill: 0.8
-
-  # Spread multiplier applied in WIDEN defense mode
-  widen_factor: 1.5
-
-  # Quote cycles to wait before de-escalating defense level
-  defense_cooldown_cycles: 5
-
-  # ── Phase Management ─────────────────────────────────────────────────────
-  # Hours in EXPLORATION phase before eligible for STABILIZATION
-  exploration_duration_hours: 24.0
-
-  # Minimum number of trades to transition to STABILIZATION phase
-  stabilization_volume_threshold: 100
-
-  # ── Advanced / Tuning ────────────────────────────────────────────────────
-  # Override remaining market hours (null = use market close timestamp)
-  remaining_hours_override: null
-
-
-# Per-market overrides (uncomment and populate as needed)
-# markets:
-#   mkt-example-001:
-#     gamma_tier: "EARLY"
-#     initial_mint_quantity: 2000
-#     spread_min_cents: 3
+markets:
+  default:
+    gamma_tier: "MID"
+    kappa: 1.5
+    anchor_price_cents: 50
+    spread_min_cents: 2
+    spread_max_cents: 20
+    initial_mint_quantity: 1000
+    auto_reinvest_enabled: true
+    auto_merge_threshold: 0.3
+    gradient_levels: 3
+    gradient_quantity_decay: 0.5
+    gradient_price_step_cents: 1
+    max_daily_loss_cents: 10000
+    max_per_market_loss_cents: 5000
+    inventory_skew_widen: 0.3
+    inventory_skew_one_side: 0.6
+    inventory_skew_kill: 0.8
+    widen_factor: 1.5
+    defense_cooldown_cycles: 5
+    exploration_duration_hours: 24.0
+    stabilization_volume_threshold: 100
