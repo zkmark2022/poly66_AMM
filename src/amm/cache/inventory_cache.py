@@ -40,6 +40,8 @@ class InventoryCache:
             return None
 
         def _int(k: str) -> int:
+            # hgetall returns bytes keys in production Redis but str keys in fakeredis;
+            # try bytes key first, fall back to str key, default to b"0".
             v = raw.get(k.encode(), raw.get(k, b"0"))
             return int(v)
 

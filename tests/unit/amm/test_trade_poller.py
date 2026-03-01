@@ -228,6 +228,68 @@ class TestIdSanitization:
 # Deduplication (regression)
 # ─────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────
+# Fix PR#13: Integer arithmetic for cost basis (no floats)
+# ─────────────────────────────────────────────────────
+
+class TestCostBasisIntegerMath:
+    async def test_yes_sell_cost_basis_uses_integer_arithmetic(self) -> None:
+        """Selling YES: cost_basis must be integer-exact, no float rounding errors."""
+        from src.amm.models.inventory import Inventory
+        from unittest.mock import call
+
+        api = AsyncMock()
+        api.get_trades.return_value = _api_resp([_amm_sell_trade("t1", price=60, qty=100)])
+
+        # yes_cost_sum_cents=301, yes_volume=3 → avg=100.333... as float → would round wrong
+        inv = Inventory(
+            cash_cents=500_000, yes_volume=3, no_volume=0,
+            yes_cost_sum_cents=301, no_cost_sum_cents=0,
+            yes_pending_sell=0, no_pending_sell=0, frozen_balance_cents=0,
+        )
+        cache = AsyncMock()
+        cache.get.return_value = inv
+        poller = TradePoller(api=api, cache=cache)
+
+        result = await poller.poll(MARKET_ID)
+
+        assert len(result) == 1
+        # cost_basis = 301 * 100 // 3 = 10033 (integer division, not round(100.333... * 100))
+        adjust_kwargs = cache.adjust.call_args.kwargs
+        assert adjust_kwargs["yes_cost_delta"] == -10033
+
+    async def test_no_sell_cost_basis_uses_integer_arithmetic(self) -> None:
+        """Selling NO: cost_basis must be integer-exact, no float rounding errors."""
+        from src.amm.models.inventory import Inventory
+
+        api = AsyncMock()
+        trade = {
+            "id": "t1",
+            "scenario": "TRANSFER_NO",
+            "quantity": 100,
+            "price_cents": 40,  # no_price = 60
+            "buy_user_id": OTHER_USER_ID,
+            "sell_user_id": AMM_USER_ID,
+            "seller_fee_cents": 0,
+        }
+        api.get_trades.return_value = _api_resp([trade])
+
+        inv = Inventory(
+            cash_cents=500_000, yes_volume=0, no_volume=3,
+            yes_cost_sum_cents=0, no_cost_sum_cents=301,
+            yes_pending_sell=0, no_pending_sell=0, frozen_balance_cents=0,
+        )
+        cache = AsyncMock()
+        cache.get.return_value = inv
+        poller = TradePoller(api=api, cache=cache)
+
+        result = await poller.poll(MARKET_ID)
+
+        assert len(result) == 1
+        adjust_kwargs = cache.adjust.call_args.kwargs
+        assert adjust_kwargs["no_cost_delta"] == -10033
+
+
 class TestDeduplication:
     async def test_same_trade_id_not_processed_twice(self) -> None:
         api = AsyncMock()

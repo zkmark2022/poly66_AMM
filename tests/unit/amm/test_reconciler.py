@@ -106,3 +106,16 @@ class TestAMMReconciler:
         reconciler = AMMReconciler(api=api, inventory_cache=cache)
         await reconciler.reconcile(["mkt-1"])
         cache.set.assert_called_once()
+
+    async def test_reconcile_frozen_balance_drift_triggers_update(self) -> None:
+        # frozen_balance_cents must be included in drift detection
+        stale = _make_inventory()  # frozen_balance_cents=0
+        cache = _make_cache(inventory=stale)
+        api = _make_api(balance={
+            "data": {"balance_cents": 500_000, "frozen_balance_cents": 10_000}
+        })
+        reconciler = AMMReconciler(api=api, inventory_cache=cache)
+        result = await reconciler.reconcile(["mkt-1"])
+        assert result["mkt-1"]["drifted"] is True
+        assert "frozen_balance_cents" in result["mkt-1"]["fields"]
+        cache.set.assert_called_once()

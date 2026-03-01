@@ -87,6 +87,7 @@ class AMMReconciler:
             ("no_volume", cached.no_volume, db.no_volume),
             ("yes_cost_sum_cents", cached.yes_cost_sum_cents, db.yes_cost_sum_cents),
             ("no_cost_sum_cents", cached.no_cost_sum_cents, db.no_cost_sum_cents),
+            ("frozen_balance_cents", cached.frozen_balance_cents, db.frozen_balance_cents),
         ]
         for name, cached_val, db_val in fields:
             if cached_val != db_val:

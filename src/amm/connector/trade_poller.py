@@ -80,8 +80,8 @@ class TradePoller:
                 # Release proportional acquisition cost, not sale price
                 inv = await self._cache.get(market_id)
                 if inv and inv.yes_volume > 0:
-                    avg_cost = inv.yes_cost_sum_cents / inv.yes_volume
-                    cost_basis = round(avg_cost * quantity)
+                    # Integer arithmetic: avoid float precision errors in financial math
+                    cost_basis = inv.yes_cost_sum_cents * quantity // inv.yes_volume
                 else:
                     cost_basis = trade_value
                 await self._cache.adjust(market_id, yes_delta=-quantity,
@@ -98,8 +98,8 @@ class TradePoller:
                 # Release proportional acquisition cost, not sale price
                 inv = await self._cache.get(market_id)
                 if inv and inv.no_volume > 0:
-                    avg_cost = inv.no_cost_sum_cents / inv.no_volume
-                    cost_basis = round(avg_cost * quantity)
+                    # Integer arithmetic: avoid float precision errors in financial math
+                    cost_basis = inv.no_cost_sum_cents * quantity // inv.no_volume
                 else:
                     cost_basis = trade_value
                 await self._cache.adjust(market_id, no_delta=-quantity,
