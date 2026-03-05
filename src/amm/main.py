@@ -10,7 +10,6 @@ import httpx
 from src.amm.cache.inventory_cache import InventoryCache
 from src.amm.cache.redis_client import create_redis_client
 from src.amm.config.loader import ConfigLoader
-from src.amm.config.models import MarketConfig
 from src.amm.connector.api_client import AMMApiClient
 from src.amm.connector.auth import TokenManager
 from src.amm.connector.order_manager import OrderManager

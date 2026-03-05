@@ -1,7 +1,6 @@
 """Tests for AMM health check endpoint."""
 from __future__ import annotations
 
-import pytest
 from httpx import AsyncClient, ASGITransport
 
 from src.amm.lifecycle.health import create_health_app, HealthState

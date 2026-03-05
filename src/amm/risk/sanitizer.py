@@ -2,7 +2,7 @@
 import logging
 from typing import TYPE_CHECKING
 
-from src.amm.models.enums import DefenseLevel, QuoteAction
+from src.amm.models.enums import DefenseLevel
 from src.amm.strategy.models import OrderIntent
 from src.amm.utils.integer_math import clamp
 

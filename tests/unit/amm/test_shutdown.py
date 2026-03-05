@@ -1,15 +1,13 @@
 """Tests for GracefulShutdown — SIGTERM → batch_cancel → clean exit."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock
 
-import pytest
 
 from src.amm.lifecycle.shutdown import GracefulShutdown
 from src.amm.models.market_context import MarketContext
 from src.amm.models.inventory import Inventory
 from src.amm.config.models import MarketConfig
-from src.amm.models.enums import Phase, DefenseLevel
 
 
 def _make_ctx(market_id: str) -> MarketContext:

@@ -1,5 +1,4 @@
 """Tests for AMM configuration models and YAML loader."""
-import pytest
 from src.amm.config.models import GlobalConfig, MarketConfig
 
 

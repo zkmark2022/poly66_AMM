@@ -1,9 +1,8 @@
 """Tests for AMMInitializer startup sequence."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
-import pytest
 
 from src.amm.lifecycle.initializer import AMMInitializer
 from src.amm.config.models import GlobalConfig, MarketConfig

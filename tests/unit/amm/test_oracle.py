@@ -77,7 +77,7 @@ class TestPolymarketOracleGetPrice:
         
         before = time.time()
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            price = await oracle.get_price()
+            await oracle.get_price()
         after = time.time()
 
         assert oracle.last_price == pytest.approx(70.0)

@@ -1,9 +1,8 @@
 """Integration tests for the AMM quote cycle orchestrator."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
-import pytest
 
 from src.amm.main import quote_cycle, run_market
 from src.amm.models.market_context import MarketContext

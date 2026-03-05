@@ -6,14 +6,12 @@ Verifies:
 - Multi-market shutdown cancels all markets
 """
 import httpx
-import pytest
 import respx
 
 from src.amm.config.models import MarketConfig
 from src.amm.connector.api_client import AMMApiClient
 from src.amm.connector.auth import TokenManager
 from src.amm.lifecycle.shutdown import GracefulShutdown
-from src.amm.models.enums import DefenseLevel
 
 from tests.integration.amm.conftest import BASE_URL, MARKET_ID, make_context
 

@@ -236,7 +236,6 @@ class TestCostBasisIntegerMath:
     async def test_yes_sell_cost_basis_uses_integer_arithmetic(self) -> None:
         """Selling YES: cost_basis must be integer-exact, no float rounding errors."""
         from src.amm.models.inventory import Inventory
-        from unittest.mock import call
 
         api = AsyncMock()
         api.get_trades.return_value = _api_resp([_amm_sell_trade("t1", price=60, qty=100)])

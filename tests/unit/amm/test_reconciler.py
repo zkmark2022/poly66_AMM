@@ -1,9 +1,8 @@
 """Tests for AMMReconciler — periodic Redis vs DB reconciliation."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock
 
-import pytest
 
 from src.amm.lifecycle.reconciler import AMMReconciler
 from src.amm.models.inventory import Inventory

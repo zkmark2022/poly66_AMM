@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from src.amm.connector.api_client import AMMApiClient
 from src.amm.cache.inventory_cache import InventoryCache
 from src.amm.strategy.models import OrderIntent
-from src.amm.models.enums import QuoteAction
 
 logger = logging.getLogger(__name__)
 

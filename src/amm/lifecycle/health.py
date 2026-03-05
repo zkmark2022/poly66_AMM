@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import uvicorn
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse

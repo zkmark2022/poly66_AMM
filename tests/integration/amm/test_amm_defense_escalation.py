@@ -4,7 +4,6 @@ Verifies the full NORMAL → WIDEN → ONE_SIDE → KILL_SWITCH progression,
 de-escalation cooldown, and batch_cancel invocation when KILL_SWITCH fires.
 """
 import httpx
-import pytest
 import respx
 
 from src.amm.config.models import MarketConfig
@@ -13,7 +12,7 @@ from src.amm.connector.auth import TokenManager
 from src.amm.models.enums import DefenseLevel
 from src.amm.risk.defense_stack import DefenseStack
 
-from tests.integration.amm.conftest import BASE_URL, MARKET_ID, make_context
+from tests.integration.amm.conftest import BASE_URL, MARKET_ID
 
 
 class TestDefenseEscalation:

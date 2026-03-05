@@ -7,8 +7,6 @@ import fakeredis.aioredis
 
 from src.amm.cache.inventory_cache import InventoryCache
 from src.amm.config.models import GlobalConfig, MarketConfig
-from src.amm.connector.api_client import AMMApiClient
-from src.amm.connector.auth import TokenManager
 from src.amm.models.enums import DefenseLevel, Phase
 from src.amm.models.inventory import Inventory
 from src.amm.models.market_context import MarketContext

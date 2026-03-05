@@ -1,5 +1,4 @@
 """Integer-only math for AMM. No floats in financial calculations."""
-import pytest
 from src.amm.utils.integer_math import ceiling_div, calculate_fee, clamp
 
 

@@ -1,5 +1,5 @@
 """AMM configuration models. Aligned with config handbook v1.3."""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 GAMMA_TIERS: dict[str, float] = {
     "EARLY": 0.1,

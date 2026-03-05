@@ -1,7 +1,6 @@
 """Tests for OrderSanitizer — defense-level filtering and inventory checks."""
 from __future__ import annotations
 
-import pytest
 
 from src.amm.config.models import MarketConfig
 from src.amm.models.enums import DefenseLevel, Phase, QuoteAction

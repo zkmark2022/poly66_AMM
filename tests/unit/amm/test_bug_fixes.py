@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
-import pytest
 
 from src.amm.config.loader import ConfigLoader
-from src.amm.config.models import GlobalConfig, MarketConfig
+from src.amm.config.models import GlobalConfig
 from src.amm.connector.api_client import AMMApiClient
 from src.amm.connector.auth import TokenManager
 from src.amm.connector.order_manager import ActiveOrder, OrderManager
