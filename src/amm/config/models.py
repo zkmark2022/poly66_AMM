@@ -65,6 +65,13 @@ class MarketConfig:
     remaining_hours_override: float | None = None
     quote_interval_seconds: float = 2.0
 
+    # Oracle (Phase 8)
+    oracle_slug: str = ""
+    oracle_stale_seconds: float = 3.0
+    oracle_deviation_cents: float = 20.0
+    oracle_lvr_window_seconds: float = 0.5
+    oracle_lvr_threshold: float = 0.20
+
     @property
     def gamma(self) -> float:
         return GAMMA_TIERS.get(self.gamma_tier, 0.3)

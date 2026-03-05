@@ -2,7 +2,6 @@
 import asyncio
 import logging
 import signal
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -16,7 +15,6 @@ from src.amm.connector.order_manager import OrderManager
 from src.amm.connector.trade_poller import TradePoller
 from src.amm.lifecycle.initializer import AMMInitializer
 from src.amm.lifecycle.shutdown import GracefulShutdown
-from src.amm.models.enums import DefenseLevel
 from src.amm.models.market_context import MarketContext
 from src.amm.risk.defense_stack import DefenseStack
 from src.amm.risk.sanitizer import OrderSanitizer
@@ -25,8 +23,8 @@ from src.amm.strategy.gradient import GradientEngine
 from src.amm.strategy.pricing.anchor import AnchorPricing
 from src.amm.strategy.pricing.micro import MicroPricing
 from src.amm.strategy.pricing.posterior import PosteriorPricing
-from src.amm.oracle.polymarket import PolymarketOracle
 from src.amm.strategy.pricing.three_layer import ThreeLayerPricing
+from src.amm.oracle.polymarket_oracle import OracleState, PolymarketOracle
 
 logger = logging.getLogger(__name__)
 
@@ -89,30 +87,29 @@ async def quote_cycle(
     ask_ladder = gradient.build_ask_ladder(ask, ctx.config, base_qty)
     bid_ladder = gradient.build_bid_ladder(bid, ctx.config, base_qty)
 
-    # Step 3: Risk — oracle check then defense evaluation
-    oracle_passive = False
-    if oracle is not None:
-        # Gemini fix: load thresholds from config instead of hardcoding
-        lag_threshold = getattr(ctx, 'oracle_lag_threshold', 10.0)
-        deviation_threshold = getattr(ctx, 'oracle_deviation_threshold', 20.0)
-        
-        if oracle.check_lag(threshold_seconds=lag_threshold):
-            logger.warning("Oracle lag detected for %s — forcing ONE_SIDE", ctx.market_id)
-            oracle_passive = True
-        elif await oracle.check_deviation(mid, threshold=deviation_threshold):
+    # Step 2.5: Oracle defense — check external price before strategy risk
+    if oracle is not None and ctx.config.oracle_slug:
+        try:
+            oracle.refresh()
+        except RuntimeError as e:
+            logger.warning("Oracle refresh failed for %s: %s", ctx.market_id, e)
+        oracle_state = oracle.evaluate(internal_price_cents=float(mid))
+        if oracle_state != OracleState.NORMAL:
+            ctx.defense_level = oracle_state.defense_level
             logger.warning(
-                "Oracle price deviation detected for %s (internal mid=%.1f) — forcing ONE_SIDE",
-                ctx.market_id, mid,
+                "Oracle %s for %s — defense → %s",
+                oracle_state, ctx.market_id, oracle_state.defense_level,
             )
-            oracle_passive = True
+            if not ctx.defense_level.is_quoting_active:
+                await order_mgr.cancel_all(ctx.market_id)
+                return
 
+    # Step 3: Risk — defense evaluation
     defense = risk.evaluate(
         inventory_skew=ctx.inventory.inventory_skew,
         daily_pnl=ctx.daily_pnl_cents,
         market_active=True,
     )
-    if oracle_passive and defense == DefenseLevel.NORMAL:
-        defense = DefenseLevel.ONE_SIDE
     ctx.defense_level = defense
 
     if not defense.is_quoting_active:
@@ -129,12 +126,11 @@ async def quote_cycle(
 async def run_market(
     ctx: MarketContext,
     services: dict[str, Any],
-    oracle: PolymarketOracle | None = None,
 ) -> None:
     """Run quote cycles for a single market until shutdown requested."""
     while not ctx.shutdown_requested:
         try:
-            await quote_cycle(ctx, oracle=oracle, **services)
+            await quote_cycle(ctx, **services)
         except Exception as e:
             logger.error("Quote cycle error for %s: %s", ctx.market_id, e, exc_info=True)
         await asyncio.sleep(ctx.config.quote_interval_seconds)
@@ -145,7 +141,6 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO)
 
     import os
-    import yaml
     base_url = os.environ.get("AMM_BASE_URL", "http://localhost:8000/api/v1")
     redis_url = os.environ.get("AMM_REDIS_URL", "redis://localhost:6379/0")
     username = os.environ.get("AMM_USERNAME", "amm_market_maker")
@@ -181,31 +176,6 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
         loop.add_signal_handler(sig, _signal_handler)
 
     # Build per-market services
-    # Load oracle config
-    # Gemini fix: use project root detection instead of fragile .parent chain
-    _project_root = Path(__file__).resolve().parent.parent.parent  # src/amm/main.py -> project root
-    _oracle_cfg_path = _project_root / "config" / "oracle.yaml"
-    oracle: PolymarketOracle | None = None
-    _oracle_lag_threshold = 10.0
-    _oracle_deviation_threshold = 20.0
-    if _oracle_cfg_path.exists():
-        with open(_oracle_cfg_path) as _f:
-            _oracle_data = yaml.safe_load(_f).get("oracle", {})
-        _slug = os.environ.get("ORACLE_MARKET_SLUG", _oracle_data.get("market_slug", ""))
-        # Gemini fix: load thresholds from config
-        _oracle_lag_threshold = _oracle_data.get("lag_threshold_seconds", 10.0)
-        _oracle_deviation_threshold = _oracle_data.get("deviation_threshold_cents", 20.0)
-        if _slug:
-            oracle = PolymarketOracle(_slug)
-            logger.info("Oracle enabled: market_slug=%s, lag_threshold=%s, deviation_threshold=%s", 
-                       _slug, _oracle_lag_threshold, _oracle_deviation_threshold)
-            # Store thresholds in contexts
-            for ctx in contexts.values():
-                ctx.oracle_lag_threshold = _oracle_lag_threshold
-                ctx.oracle_deviation_threshold = _oracle_deviation_threshold
-    else:
-        logger.info("No oracle config found at %s — oracle disabled", _oracle_cfg_path)
-
     tasks = []
     for ctx in contexts.values():
         poller = TradePoller(api=api, cache=inventory_cache)
@@ -220,6 +190,8 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
         sanitizer = OrderSanitizer()
         order_mgr = OrderManager(api=api, cache=inventory_cache)
 
+        oracle = PolymarketOracle(ctx.config) if ctx.config.oracle_slug else None
+
         services = {
             "api": api,
             "poller": poller,
@@ -230,8 +202,9 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
             "sanitizer": sanitizer,
             "order_mgr": order_mgr,
             "inventory_cache": inventory_cache,
+            "oracle": oracle,
         }
-        tasks.append(asyncio.create_task(run_market(ctx, services, oracle=oracle)))
+        tasks.append(asyncio.create_task(run_market(ctx, services)))
 
     try:
         await asyncio.gather(*tasks, return_exceptions=True)
