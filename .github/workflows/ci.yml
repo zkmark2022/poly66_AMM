@@ -83,4 +83,4 @@ jobs:
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/poly66_test
           REDIS_URL: redis://localhost:6379
-        run: uv run pytest tests/integration/ -v -m integration
+        run: uv run pytest tests/integration/ -v
