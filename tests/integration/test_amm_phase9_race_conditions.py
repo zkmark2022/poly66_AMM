@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock
 
 import httpx
 import fakeredis.aioredis
-import pytest
 import respx
 
 from src.amm.cache.inventory_cache import InventoryCache
