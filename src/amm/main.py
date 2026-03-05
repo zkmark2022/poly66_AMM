@@ -15,7 +15,6 @@ from src.amm.connector.order_manager import OrderManager
 from src.amm.connector.trade_poller import TradePoller
 from src.amm.lifecycle.initializer import AMMInitializer
 from src.amm.lifecycle.shutdown import GracefulShutdown
-from src.amm.models.enums import DefenseLevel
 from src.amm.models.market_context import MarketContext
 from src.amm.risk.defense_stack import DefenseStack
 from src.amm.risk.sanitizer import OrderSanitizer
