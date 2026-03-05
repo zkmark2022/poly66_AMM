@@ -31,3 +31,10 @@ markets:
     defense_cooldown_cycles: 5
     exploration_duration_hours: 24.0
     stabilization_volume_threshold: 100
+
+    # Oracle (Phase 8) — external Polymarket price feed
+    oracle_slug: ""                  # set to market slug to enable, e.g. "will-trump-win-2024"
+    oracle_stale_seconds: 3.0        # T8.2: price stale > 3s → PASSIVE_MODE (ONE_SIDE)
+    oracle_deviation_cents: 20.0     # T8.3: |internal - oracle| > 20¢ → AMM_PAUSE (KILL_SWITCH)
+    oracle_lvr_window_seconds: 0.5   # T8.1: LVR detection window in seconds
+    oracle_lvr_threshold: 0.20       # T8.1: price change > 20% in window → KILL
