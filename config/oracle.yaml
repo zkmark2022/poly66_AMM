@@ -1,0 +1,9 @@
+# Oracle configuration for external price source
+oracle:
+  type: polymarket
+  market_slug: 'will-btc-exceed-100000'
+  # Update interval must be <= lag threshold to avoid false lag detection
+  update_interval_seconds: 5
+  # Gemini fix: lag threshold should be > update interval
+  lag_threshold_seconds: 10
+  deviation_threshold_cents: 20
