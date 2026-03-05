@@ -1,5 +1,7 @@
 """REST API client for AMM ↔ matching engine communication."""
 import asyncio
+import hashlib
+import json
 import logging
 import re
 from typing import Any
@@ -64,8 +66,37 @@ class AMMApiClient:
         return await self._request("POST", f"/orders/{_sanitize_id(order_id)}/cancel")
 
     async def replace_order(self, old_order_id: str, new_order: dict) -> dict:
-        return await self._request("POST", "/amm/orders/replace",
-                                   json={"old_order_id": old_order_id, "new_order": new_order})
+        sanitized_old_order_id = _sanitize_id(old_order_id)
+        payload_new_order = dict(new_order)
+        idempotency_key = self._build_replace_idempotency_key(
+            sanitized_old_order_id, payload_new_order
+        )
+        payload = {
+            "old_order_id": sanitized_old_order_id,
+            "new_order": payload_new_order,
+            "idempotency_key": idempotency_key,
+        }
+
+        timeout_retries = 0
+        while True:
+            try:
+                return await self._request("POST", "/amm/orders/replace", json=payload)
+            except httpx.TimeoutException:
+                if timeout_retries >= MAX_RETRY_ATTEMPTS:
+                    raise
+                timeout_retries += 1
+                backoff = min(2 ** (timeout_retries - 1), 5)
+                logger.warning(
+                    "Replace timeout for %s (attempt %d/%d), sleeping %ds",
+                    sanitized_old_order_id, timeout_retries, MAX_RETRY_ATTEMPTS, backoff,
+                )
+                await asyncio.sleep(backoff)
+
+    @staticmethod
+    def _build_replace_idempotency_key(old_order_id: str, new_order: dict[str, Any]) -> str:
+        order_payload = json.dumps(new_order, sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(f"{old_order_id}|{order_payload}".encode()).hexdigest()[:24]
+        return f"replace_{old_order_id}_{digest}"
 
     async def batch_cancel(self, market_id: str, scope: str = "ALL") -> dict:
         return await self._request("POST", "/amm/orders/batch-cancel",

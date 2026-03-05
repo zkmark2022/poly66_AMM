@@ -12,10 +12,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _KEY_PREFIX = "amm:inventory"
+_INTENT_KEY_PREFIX = "amm:intent"
 
 
 def _key(market_id: str) -> str:
     return f"{_KEY_PREFIX}:{market_id}"
+
+
+def _intent_key(market_id: str, fingerprint: str) -> str:
+    return f"{_INTENT_KEY_PREFIX}:{market_id}:{fingerprint}"
 
 
 class InventoryCache:
@@ -92,3 +97,21 @@ class InventoryCache:
 
     async def delete(self, market_id: str) -> None:
         await self._redis.delete(_key(market_id))
+
+    async def mark_order_submission(
+        self,
+        market_id: str,
+        fingerprint: str,
+        ttl_seconds: int = 300,
+    ) -> bool:
+        """Mark an order intent as submitted to prevent duplicate replay after restart."""
+        created = await self._redis.set(
+            _intent_key(market_id, fingerprint),
+            "1",
+            ex=ttl_seconds,
+            nx=True,
+        )
+        return bool(created)
+
+    async def clear_order_submission(self, market_id: str, fingerprint: str) -> None:
+        await self._redis.delete(_intent_key(market_id, fingerprint))

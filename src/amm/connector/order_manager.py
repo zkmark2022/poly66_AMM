@@ -47,6 +47,16 @@ class OrderManager:
         for intent in intents:
             key = (intent.side, intent.direction, intent.price_cents)
             if key not in active_keys:
+                fingerprint = self._intent_fingerprint(intent)
+                dedupe_marked = await self._cache.mark_order_submission(
+                    market_id, fingerprint
+                )
+                if not dedupe_marked:
+                    logger.warning(
+                        "Skip duplicate place intent after recovery: %s %s@%s qty=%s",
+                        intent.side, intent.direction, intent.price_cents, intent.quantity,
+                    )
+                    continue
                 try:
                     resp = await self._api.place_order({
                         "market_id": market_id,
@@ -64,7 +74,10 @@ class OrderManager:
                             price_cents=intent.price_cents,
                             remaining_quantity=intent.quantity,
                         )
+                    else:
+                        await self._cache.clear_order_submission(market_id, fingerprint)
                 except Exception as e:
+                    await self._cache.clear_order_submission(market_id, fingerprint)
                     logger.error("Failed to place order: %s", e)
 
         await self._sync_pending_sell(market_id)
@@ -93,3 +106,10 @@ class OrderManager:
         await self._api.batch_cancel(market_id, scope="ALL")
         self.active_orders.clear()
         await self._sync_pending_sell(market_id)
+
+    @staticmethod
+    def _intent_fingerprint(intent: OrderIntent) -> str:
+        return (
+            f"{intent.action.value}:"
+            f"{intent.side}:{intent.direction}:{intent.price_cents}:{intent.quantity}"
+        )
