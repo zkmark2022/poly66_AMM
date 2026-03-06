@@ -11,6 +11,7 @@ from src.amm.config.models import GlobalConfig, MarketConfig
 from src.amm.lifecycle.health import HealthState
 from src.amm.main import (
     _build_signal_handler,
+    _evaluate_oracle_state,
     _oracle_refresh_loop,
     _wait_for_task_shutdown,
     amm_main,
@@ -217,6 +218,51 @@ class TestAMMMain:
 
         assert oracle.refresh.call_count == 2
 
+    async def test_oracle_refresh_loop_refreshes_before_first_sleep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        contexts = {"mkt-1": _make_context()}
+        oracle = MagicMock()
+        sleep_calls = 0
+
+        async def fake_sleep(_seconds: float) -> None:
+            nonlocal sleep_calls
+            sleep_calls += 1
+
+        def refresh() -> None:
+            contexts["mkt-1"].shutdown_requested = True
+
+        oracle.refresh.side_effect = refresh
+        monkeypatch.setattr("src.amm.main.asyncio.sleep", fake_sleep)
+
+        await _oracle_refresh_loop(oracle, 0.01, contexts)
+
+        oracle.refresh.assert_called_once()
+        assert sleep_calls == 0
+
+    async def test_oracle_refresh_loop_runs_sync_refresh_in_executor(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        contexts = {"mkt-1": _make_context()}
+        oracle = SimpleNamespace(refresh=MagicMock(), last_price=52.0)
+        executor_calls: list[tuple[object | None, object]] = []
+
+        class FakeLoop:
+            async def run_in_executor(self, executor: object | None, func: object) -> None:
+                executor_calls.append((executor, func))
+                contexts["mkt-1"].shutdown_requested = True
+                func()
+
+        async def fake_sleep(_seconds: float) -> None:
+            raise AssertionError("sleep should not run before the initial refresh")
+
+        monkeypatch.setattr("src.amm.main.asyncio.get_running_loop", lambda: FakeLoop())
+        monkeypatch.setattr("src.amm.main.asyncio.sleep", fake_sleep)
+
+        await _oracle_refresh_loop(oracle, 0.01, contexts)
+
+        assert executor_calls == [(None, oracle.refresh)]
+        oracle.refresh.assert_called_once()
+
     async def test_oracle_refresh_loop_logs_refresh_failures(self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
         contexts = {"mkt-1": _make_context()}
         original_sleep = asyncio.sleep
@@ -229,7 +275,7 @@ class TestAMMMain:
 
         def refresh() -> None:
             contexts["mkt-1"].shutdown_requested = True
-            raise RuntimeError("oracle unavailable")
+            raise ValueError("oracle unavailable")
 
         oracle.refresh.side_effect = refresh
         monkeypatch.setattr("src.amm.main.asyncio.sleep", fake_sleep)
@@ -237,3 +283,20 @@ class TestAMMMain:
         await _oracle_refresh_loop(oracle, 0.01, contexts)
 
         assert "Oracle background refresh failed: oracle unavailable" in caplog.text
+
+    async def test_evaluate_oracle_state_supports_legacy_async_oracle(self) -> None:
+        ctx = _make_context()
+
+        class LegacyOracle:
+            def check_lag(self, threshold_seconds: float = 3.0) -> bool:
+                assert threshold_seconds == ctx.oracle_lag_threshold
+                return False
+
+            async def check_deviation(self, internal_price: float, threshold: float = 20.0) -> bool:
+                assert internal_price == 51.0
+                assert threshold == ctx.oracle_deviation_threshold
+                return False
+
+        state = await _evaluate_oracle_state(LegacyOracle(), ctx, internal_price_cents=51.0)
+
+        assert state.value == "NORMAL"

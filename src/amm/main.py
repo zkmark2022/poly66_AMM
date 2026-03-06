@@ -6,8 +6,7 @@ import os
 import signal
 from pathlib import Path
 import time
-from typing import Any
-from typing import cast
+from typing import Any, Callable, cast
 
 import httpx
 
@@ -50,7 +49,7 @@ def _build_signal_handler(
     market_task_handles: list[asyncio.Task],
     background_tasks: list[asyncio.Task],
     shutdown_event: asyncio.Event,
-) -> callable:
+) -> Callable[[], None]:
     def _signal_handler() -> None:
         logger.info("Shutdown signal received - initiating graceful shutdown")
         for ctx in contexts.values():
@@ -60,6 +59,10 @@ def _build_signal_handler(
             task.cancel()
 
     return _signal_handler
+
+
+def _shutdown_requested(contexts: dict[str, MarketContext]) -> bool:
+    return any(ctx.shutdown_requested for ctx in contexts.values())
 
 
 async def _wait_for_task_shutdown(tasks: list[asyncio.Task], timeout_seconds: float) -> None:
@@ -90,21 +93,33 @@ async def _oracle_refresh_loop(
     shutdown_contexts: dict[str, MarketContext],
 ) -> None:
     """Periodically refresh oracle price in background."""
-    while not any(ctx.shutdown_requested for ctx in shutdown_contexts.values()):
-        await asyncio.sleep(interval_seconds)
-        if any(ctx.shutdown_requested for ctx in shutdown_contexts.values()):
-            break
+    while not _shutdown_requested(shutdown_contexts):
         try:
-            refresh = getattr(oracle, "refresh", None)
-            if callable(refresh):
-                result = refresh()
-                if inspect.isawaitable(result):
-                    await result
-            else:
-                await oracle.get_price()
+            await _refresh_oracle(oracle)
             logger.debug("Oracle price refreshed: %.2f", getattr(oracle, "last_price", 0) or 0)
-        except RuntimeError as e:
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
             logger.warning("Oracle background refresh failed: %s", e)
+
+        if _shutdown_requested(shutdown_contexts):
+            break
+
+        await asyncio.sleep(interval_seconds)
+
+
+async def _refresh_oracle(oracle: PolymarketOracle) -> None:
+    refresh = getattr(oracle, "refresh", None)
+    if callable(refresh):
+        if inspect.iscoroutinefunction(refresh):
+            await refresh()
+            return
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, refresh)
+        return
+
+    await oracle.get_price()
 
 
 async def _evaluate_oracle_state(
@@ -119,13 +134,22 @@ async def _evaluate_oracle_state(
             return await result
         return result
 
-    if oracle.check_lag(threshold_seconds=ctx.oracle_lag_threshold):
-        return OracleState.STALE
+    check_stale = getattr(oracle, "check_stale", None)
+    if callable(check_stale):
+        if check_stale():
+            return OracleState.STALE
+        check_lvr = getattr(oracle, "check_lvr", None)
+        if callable(check_lvr) and check_lvr():
+            return OracleState.LVR
+        deviation = oracle.check_deviation(internal_price_cents)
+    else:
+        if oracle.check_lag(threshold_seconds=ctx.oracle_lag_threshold):
+            return OracleState.STALE
+        deviation = oracle.check_deviation(
+            internal_price_cents,
+            threshold=ctx.oracle_deviation_threshold,
+        )
 
-    deviation = oracle.check_deviation(
-        internal_price=internal_price_cents,
-        threshold=ctx.oracle_deviation_threshold,
-    )
     if inspect.isawaitable(deviation):
         deviation = await deviation
     if deviation:

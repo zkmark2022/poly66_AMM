@@ -302,9 +302,9 @@ class TestOrderManagerPendingSells:
         api.cancel_order.assert_not_called()
         api.place_order.assert_not_called()
 
-    async def test_replace_cancel_failure_does_not_place_new_order(self) -> None:
+    async def test_replace_failure_keeps_old_order(self) -> None:
         api = AsyncMock()
-        api.cancel_order.side_effect = Exception("cancel failed")
+        api.replace_order.side_effect = Exception("replace failed")
         cache = AsyncMock()
         mgr = OrderManager(api=api, cache=cache)
         mgr.active_orders["existing"] = _make_order("existing", "YES", "SELL", 55, 100)
@@ -318,18 +318,21 @@ class TestOrderManagerPendingSells:
             direction="SELL",
             price_cents=56,
             quantity=100,
+            old_order_id="existing",
         )]
 
         await mgr.execute_intents(intents, "mkt-1")
 
-        api.cancel_order.assert_called_once_with("existing")
+        api.replace_order.assert_called_once()
         api.place_order.assert_not_called()
         assert "existing" in mgr.active_orders
+        cache.clear_order_submission.assert_awaited_once()
 
-    async def test_replace_place_failure_removes_old_order(self) -> None:
+    async def test_replace_success_updates_active_orders(self) -> None:
         api = AsyncMock()
-        api.place_order.side_effect = Exception("place failed")
+        api.replace_order.return_value = {"data": {"order_id": "replacement"}}
         cache = AsyncMock()
+        cache.mark_order_submission.return_value = True
         mgr = OrderManager(api=api, cache=cache)
         mgr.active_orders["existing"] = _make_order("existing", "YES", "SELL", 55, 100)
 
@@ -342,13 +345,59 @@ class TestOrderManagerPendingSells:
             direction="SELL",
             price_cents=56,
             quantity=100,
+            old_order_id="existing",
         )]
 
         await mgr.execute_intents(intents, "mkt-1")
 
-        api.cancel_order.assert_called_once_with("existing")
-        api.place_order.assert_called_once()
+        api.replace_order.assert_called_once_with("existing", {
+            "market_id": "mkt-1",
+            "side": "YES",
+            "direction": "SELL",
+            "price_cents": 56,
+            "quantity": 100,
+        })
+        api.cancel_order.assert_not_called()
+        api.place_order.assert_not_called()
         assert "existing" not in mgr.active_orders
+        assert "replacement" in mgr.active_orders
+
+    async def test_replace_preserves_existing_price_level_when_target_is_ambiguous(self) -> None:
+        api = AsyncMock()
+        api.place_order.return_value = {"data": {"order_id": "new-order"}}
+        cache = AsyncMock()
+        cache.mark_order_submission.return_value = True
+        mgr = OrderManager(api=api, cache=cache)
+        mgr.active_orders["keep"] = _make_order("keep", "YES", "SELL", 55, 100)
+        mgr.active_orders["replace-me"] = _make_order("replace-me", "YES", "SELL", 60, 100)
+
+        from src.amm.models.enums import QuoteAction
+        from src.amm.strategy.models import OrderIntent
+
+        intents = [
+            OrderIntent(
+                action=QuoteAction.PLACE,
+                side="YES",
+                direction="SELL",
+                price_cents=55,
+                quantity=100,
+            ),
+            OrderIntent(
+                action=QuoteAction.REPLACE,
+                side="YES",
+                direction="SELL",
+                price_cents=61,
+                quantity=100,
+            ),
+        ]
+
+        await mgr.execute_intents(intents, "mkt-1")
+
+        api.cancel_order.assert_called_once_with("replace-me")
+        api.replace_order.assert_not_called()
+        assert "keep" in mgr.active_orders
+        assert mgr.active_orders["keep"].price_cents == 55
+        assert "new-order" in mgr.active_orders
 
 
 # ─────────────────────────────────────────────────────────────────────
