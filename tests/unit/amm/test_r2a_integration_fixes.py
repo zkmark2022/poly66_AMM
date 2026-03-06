@@ -9,7 +9,7 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -126,7 +126,6 @@ class TestFix1OracleNotDuplicated:
         monkeypatch.setattr(main_mod, "run_market_with_health", fake_run_market_with_health)
 
         # Patch everything needed for amm_main to run
-        from src.amm.lifecycle.health import HealthState
         mock_initializer = AsyncMock()
         ctx = _make_context()
         mock_initializer.initialize.return_value = {ctx.market_id: ctx}
