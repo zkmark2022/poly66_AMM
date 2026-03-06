@@ -15,6 +15,7 @@ class MarketContext:
     phase: Phase = Phase.EXPLORATION
     defense_level: DefenseLevel = DefenseLevel.NORMAL
     daily_pnl_cents: int = 0
+    initial_inventory_value_cents: int = 0
     trade_count: int = 0
     shutdown_requested: bool = False
     active_orders: dict = field(default_factory=dict)

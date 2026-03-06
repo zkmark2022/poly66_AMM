@@ -154,6 +154,11 @@ class AMMApiClient:
     async def get_orderbook(self, market_id: str) -> dict:
         return await self._request("GET", f"/markets/{_sanitize_id(market_id)}/orderbook")
 
+    async def get_market_status(self, market_id: str) -> str:
+        resp = await self._request("GET", f"/markets/{_sanitize_id(market_id)}")
+        data = resp.get("data", resp)
+        return str(data.get("status", "unknown")).lower()
+
     async def close(self) -> None:
         if self._owns_client:
             await self._client.aclose()

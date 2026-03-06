@@ -41,11 +41,13 @@ def _make_ctx(market_id: str = "mkt-1", defense: DefenseLevel = DefenseLevel.NOR
 
 def _make_api(
     orderbook: dict | None = None,
+    market_status: str = "active",
 ) -> AsyncMock:
     api = AsyncMock()
     api.get_orderbook.return_value = orderbook or {
         "data": {"best_bid": 48, "best_ask": 52}
     }
+    api.get_market_status.return_value = market_status
     return api
 
 
@@ -116,6 +118,7 @@ class TestQuoteCycle:
         ctx = _make_ctx()
         api = AsyncMock()
         api.get_orderbook.side_effect = Exception("network error")
+        api.get_market_status.return_value = "active"
         services = _make_services(api=api)
         # Should not raise; fallback kicks in
         await quote_cycle(ctx, **services)

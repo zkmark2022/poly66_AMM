@@ -107,6 +107,7 @@ class TestWidenDefenseInQuoteCycle:
         # Shared mock services
         api = AsyncMock()
         api.get_orderbook.return_value = {"data": {"best_bid": 48, "best_ask": 52}}
+        api.get_market_status.return_value = "active"
 
         poller = AsyncMock()
         poller.poll.return_value = []
