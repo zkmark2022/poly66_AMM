@@ -60,6 +60,8 @@ class MarketConfig:
     # Phase
     exploration_duration_hours: float = 24.0
     stabilization_volume_threshold: int = 100
+    phase_weights_exploration: tuple[float, float, float] = (0.6, 0.3, 0.1)
+    phase_weights_stabilization: tuple[float, float, float] = (0.2, 0.5, 0.3)
 
     # Timing
     remaining_hours_override: float | None = None
