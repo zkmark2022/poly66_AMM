@@ -386,6 +386,27 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, _signal_handler)
 
+    # Load oracle config (interval + thresholds) from global config file (optional)
+    _project_root = Path(__file__).resolve().parent.parent.parent
+    _oracle_cfg_path = _project_root / "config" / "oracle.yaml"
+    _oracle_interval = 30.0
+    _oracle_lag_threshold = 10.0
+    _oracle_deviation_threshold = 20.0
+    if _oracle_cfg_path.exists():
+        with open(_oracle_cfg_path) as _f:
+            _oracle_data = yaml.safe_load(_f).get("oracle", {})
+        _oracle_interval = _oracle_data.get("update_interval_seconds", 30.0)
+        _oracle_lag_threshold = _oracle_data.get("lag_threshold_seconds", 10.0)
+        _oracle_deviation_threshold = _oracle_data.get("deviation_threshold_cents", 20.0)
+
+    # Apply thresholds before oracle construction so the unified oracle uses them too.
+    for ctx in contexts.values():
+        if ctx.config.oracle_slug:
+            ctx.oracle_lag_threshold = _oracle_lag_threshold
+            ctx.oracle_deviation_threshold = _oracle_deviation_threshold
+            ctx.config.oracle_stale_seconds = _oracle_lag_threshold
+            ctx.config.oracle_deviation_cents = _oracle_deviation_threshold
+
     # Build per-market oracles — each market gets its own oracle instance
     # so different oracle_slug configs don't pollute each other.
     market_oracles: dict[str, PolymarketOracle | None] = {}
@@ -400,24 +421,6 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
             market_oracles[mid] = market_oracle
         else:
             market_oracles[mid] = None
-
-    # Load oracle config (interval + thresholds) from global config file (optional)
-    _project_root = Path(__file__).resolve().parent.parent.parent
-    _oracle_cfg_path = _project_root / "config" / "oracle.yaml"
-    _oracle_interval = 30.0
-    _oracle_lag_threshold = 10.0
-    _oracle_deviation_threshold = 20.0
-    if _oracle_cfg_path.exists():
-        with open(_oracle_cfg_path) as _f:
-            _oracle_data = yaml.safe_load(_f).get("oracle", {})
-        _oracle_interval = _oracle_data.get("update_interval_seconds", 30.0)
-        _oracle_lag_threshold = _oracle_data.get("lag_threshold_seconds", 10.0)
-        _oracle_deviation_threshold = _oracle_data.get("deviation_threshold_cents", 20.0)
-    # Apply thresholds to contexts that have an oracle enabled
-    for mid, ctx in contexts.items():
-        if market_oracles.get(mid) is not None:
-            ctx.oracle_lag_threshold = _oracle_lag_threshold
-            ctx.oracle_deviation_threshold = _oracle_deviation_threshold
 
     tasks = []
     for ctx in contexts.values():

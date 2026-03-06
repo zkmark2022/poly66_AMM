@@ -177,12 +177,20 @@ class PolymarketOracle:
             outcome_prices = data.get("outcomePrices")
             if isinstance(outcome_prices, list) and outcome_prices:
                 return float(outcome_prices[0]) * 100.0
+            raise RuntimeError("polymarket CLI response missing outcomePrices")
         except asyncio.TimeoutError:
             logger.warning("PolymarketOracle refresh timeout for %s", self._config.oracle_slug)
+            raise RuntimeError(
+                f"polymarket CLI timed out for {self._config.oracle_slug}"
+            ) from None
         except Exception as exc:
             logger.warning(
                 "PolymarketOracle refresh failed for %s: %s",
                 self._config.oracle_slug,
                 exc,
             )
-        return 50.0
+            if isinstance(exc, RuntimeError):
+                raise
+            raise RuntimeError(
+                f"polymarket CLI failed for {self._config.oracle_slug}"
+            ) from exc

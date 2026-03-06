@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 from typing import Awaitable, Callable
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -142,6 +142,103 @@ class TestAMMMain:
             (),
             {"api": api, "inventory_cache": inventory_cache},
         )]
+
+    async def test_amm_main_applies_global_oracle_thresholds_before_oracle_construction(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ctx = _make_context()
+        ctx.config.oracle_slug = "full-oracle"
+        ctx.config.oracle_stale_seconds = 3.0
+        ctx.config.oracle_deviation_cents = 20.0
+
+        global_cfg = GlobalConfig(reconcile_interval_seconds=0.01)
+        redis_client = AsyncMock()
+        http_client = AsyncMock()
+        token_mgr = object()
+        api = object()
+        inventory_cache = object()
+        config_loader = AsyncMock()
+        initializer = AsyncMock()
+        initializer.initialize.return_value = {ctx.market_id: ctx}
+        shutdown = AsyncMock()
+        observed_configs: list[MarketConfig] = []
+
+        class FakeOracle:
+            def __init__(self, config: MarketConfig) -> None:
+                observed_configs.append(config)
+
+            async def refresh(self) -> None:
+                return None
+
+        class FakeReconciler:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                return None
+
+            async def reconcile(self, _market_ids: list[str]) -> dict[str, dict[str, object]]:
+                ctx.shutdown_requested = True
+                return {}
+
+        async def fake_run_market(
+            market_ctx: MarketContext,
+            services: dict[str, object],
+            state: HealthState,
+            **kwargs: object,
+        ) -> None:
+            assert market_ctx is ctx
+            assert state.ready is True
+            assert kwargs["oracle"] is not None
+            market_ctx.shutdown_requested = True
+
+        async def fake_run_health_server(_state: HealthState, port: int = 8001) -> None:
+            assert port == 8001
+            while not ctx.shutdown_requested:
+                await asyncio.sleep(0)
+
+        monkeypatch.setattr("src.amm.main.create_redis_client", lambda url: redis_client)
+        monkeypatch.setattr("src.amm.main.httpx.AsyncClient", lambda **kwargs: http_client)
+        monkeypatch.setattr("src.amm.main.TokenManager", lambda *args, **kwargs: token_mgr)
+        monkeypatch.setattr("src.amm.main.AMMApiClient", lambda *args, **kwargs: api)
+        monkeypatch.setattr("src.amm.main.InventoryCache", lambda redis: inventory_cache)
+        monkeypatch.setattr(
+            "src.amm.main.ConfigLoader",
+            lambda redis_client=None: config_loader,
+        )
+        monkeypatch.setattr("src.amm.main.AMMInitializer", lambda **kwargs: initializer)
+        monkeypatch.setattr("src.amm.main.GracefulShutdown", lambda api: shutdown)
+        monkeypatch.setattr("src.amm.main.AMMReconciler", FakeReconciler)
+        monkeypatch.setattr("src.amm.main.run_market_with_health", fake_run_market)
+        monkeypatch.setattr("src.amm.main.run_health_server", fake_run_health_server)
+        monkeypatch.setattr("src.amm.main.TradePoller", lambda *args, **kwargs: object())
+        monkeypatch.setattr("src.amm.main.ThreeLayerPricing", lambda *args, **kwargs: object())
+        monkeypatch.setattr("src.amm.main.AnchorPricing", lambda *args, **kwargs: object())
+        monkeypatch.setattr("src.amm.main.MicroPricing", lambda *args, **kwargs: object())
+        monkeypatch.setattr("src.amm.main.PosteriorPricing", lambda *args, **kwargs: object())
+        monkeypatch.setattr("src.amm.main.ASEngine", lambda *args, **kwargs: object())
+        monkeypatch.setattr("src.amm.main.GradientEngine", lambda *args, **kwargs: object())
+        monkeypatch.setattr("src.amm.main.DefenseStack", lambda *args, **kwargs: object())
+        monkeypatch.setattr("src.amm.main.OrderSanitizer", lambda *args, **kwargs: object())
+        monkeypatch.setattr("src.amm.main.OrderManager", lambda *args, **kwargs: object())
+        monkeypatch.setattr("src.amm.main.PhaseManager", lambda *args, **kwargs: object())
+        monkeypatch.setattr("src.amm.main.PolymarketOracle", FakeOracle)
+        fake_loop = SimpleNamespace(add_signal_handler=lambda *args, **kwargs: None)
+        monkeypatch.setattr("src.amm.main.asyncio.get_event_loop", lambda: fake_loop)
+        monkeypatch.setenv("AMM_BASE_URL", "http://test/api/v1")
+        monkeypatch.setenv("AMM_REDIS_URL", "redis://test")
+        monkeypatch.setenv("AMM_USERNAME", "amm")
+        monkeypatch.setenv("AMM_PASSWORD", "secret")
+        monkeypatch.setenv("AMM_MARKETS", ctx.market_id)
+        config_loader.load_global.return_value = global_cfg
+
+        with patch(
+            "yaml.safe_load",
+            return_value={"oracle": {"lag_threshold_seconds": 11.0, "deviation_threshold_cents": 17.0}},
+        ):
+            await amm_main()
+
+        assert len(observed_configs) == 1
+        assert observed_configs[0].oracle_stale_seconds == 11.0
+        assert observed_configs[0].oracle_deviation_cents == 17.0
 
     async def test_run_market_with_health_decrements_markets_active_on_exit(
         self, monkeypatch: pytest.MonkeyPatch,

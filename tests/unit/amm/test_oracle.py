@@ -74,33 +74,40 @@ class TestPolymarketOracleRefresh:
         assert oracle.get_yes_price() == pytest.approx(65.0)
 
     @pytest.mark.asyncio
-    async def test_refresh_uses_default_50_when_outcome_prices_missing(self) -> None:
-        """refresh() should still cache a neutral fallback on malformed output."""
+    async def test_refresh_raises_when_outcome_prices_missing(self) -> None:
+        """refresh() should reject malformed CLI output without mutating cached state."""
         oracle = PolymarketOracle(_make_config())
 
         mock_proc = MagicMock()
+        mock_proc.returncode = 0
         mock_proc.communicate = AsyncMock(return_value=(
             json.dumps({"title": "some market"}).encode(),
             b"",
         ))
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            await oracle.refresh()
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(RuntimeError, match="outcomePrices"):
+                await oracle.refresh()
 
-        assert oracle.get_yes_price() == pytest.approx(50.0)
+        assert oracle.check_stale() is True
+        with pytest.raises(RuntimeError, match="No price data"):
+            oracle.get_yes_price()
 
     @pytest.mark.asyncio
-    async def test_refresh_uses_default_50_on_timeout(self) -> None:
-        """refresh() should tolerate subprocess timeout and keep neutral price."""
+    async def test_refresh_timeout_keeps_oracle_stale(self) -> None:
+        """refresh() timeout must not mark the oracle as freshly updated."""
         oracle = PolymarketOracle(_make_config())
 
         mock_proc = MagicMock()
         mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            await oracle.refresh()
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(RuntimeError, match="timed out"):
+                await oracle.refresh()
 
-        assert oracle.get_yes_price() == pytest.approx(50.0)
+        assert oracle.check_stale() is True
+        with pytest.raises(RuntimeError, match="No price data"):
+            oracle.get_yes_price()
 
 
 class TestPolymarketOracleCheckDeviation:

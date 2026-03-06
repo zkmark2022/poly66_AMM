@@ -69,7 +69,7 @@ class TestT81LVRRapidLoss:
         oracle = _oracle(lvr_window_seconds=0.5, lvr_threshold=0.20)
         t0 = 1000.0
 
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
             mock_exec.return_value = _proc_ok(60.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
                 await oracle.refresh()
@@ -87,7 +87,7 @@ class TestT81LVRRapidLoss:
         oracle = _oracle(lvr_window_seconds=0.5, lvr_threshold=0.20)
         t0 = 1000.0
 
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
             mock_exec.return_value = _proc_ok(60.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
                 await oracle.refresh()
@@ -105,7 +105,7 @@ class TestT81LVRRapidLoss:
         oracle = _oracle(lvr_window_seconds=0.5, lvr_threshold=0.20)
         t0 = 1000.0
 
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
             mock_exec.return_value = _proc_ok(60.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
                 await oracle.refresh()
@@ -135,7 +135,7 @@ class TestT82OracleStale:
         oracle = _oracle(stale_seconds=3.0)
         t0 = 1000.0
 
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
             mock_exec.return_value = _proc_ok(50.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
                 await oracle.refresh()
@@ -152,7 +152,7 @@ class TestT82OracleStale:
         oracle = _oracle(stale_seconds=3.0)
         t0 = 1000.0
 
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
             mock_exec.return_value = _proc_ok(50.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
                 await oracle.refresh()
@@ -186,7 +186,7 @@ class TestT83OracleDeviation:
         oracle = _oracle(deviation_cents=20.0)
         t0 = 1000.0
 
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
             mock_exec.return_value = _proc_ok(75.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
                 await oracle.refresh()
@@ -200,7 +200,7 @@ class TestT83OracleDeviation:
         oracle = _oracle(deviation_cents=20.0)
         t0 = 1000.0
 
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
             mock_exec.return_value = _proc_ok(65.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
                 await oracle.refresh()
@@ -214,7 +214,7 @@ class TestT83OracleDeviation:
         oracle = _oracle(deviation_cents=20.0)
         t0 = 1000.0
 
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
             # Phase 1: large deviation → AMM_PAUSE
             mock_exec.return_value = _proc_ok(80.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
@@ -247,7 +247,7 @@ class TestOracleCLI:
         oracle = _oracle()
         t0 = 1000.0
 
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
             mock_exec.return_value = _proc_ok(52.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
                 await oracle.refresh()
@@ -260,7 +260,7 @@ class TestOracleCLI:
         """refresh() invokes the polymarket CLI with json output enabled."""
         oracle = _oracle(slug="my-test-slug")
 
-        with patch("asyncio.create_subprocess_exec") as mock_exec:
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
             mock_exec.return_value = _proc_ok(50.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=1000.0):
                 await oracle.refresh()
@@ -277,14 +277,20 @@ class TestOracleCLI:
         )
 
     @pytest.mark.asyncio
-    async def test_cli_non_zero_exit_falls_back_to_neutral_price(self) -> None:
-        """CLI exit code != 0 should degrade to the neutral fallback price."""
+    async def test_cli_non_zero_exit_keeps_oracle_stale(self) -> None:
+        """CLI failures must not be recorded as a healthy neutral sample."""
         oracle = _oracle()
 
-        with patch("asyncio.create_subprocess_exec", return_value=_proc_error("market not found")):
+        with patch(
+            "src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec",
+            return_value=_proc_error("market not found"),
+        ):
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=1000.0):
-                await oracle.refresh()
-        assert oracle.get_yes_price() == pytest.approx(50.0)
+                with pytest.raises(RuntimeError, match="market not found"):
+                    await oracle.refresh()
+        assert oracle.check_stale() is True
+        with pytest.raises(RuntimeError, match="No price data"):
+            oracle.get_yes_price()
 
     def test_get_yes_price_before_refresh_raises(self) -> None:
         """get_yes_price() before any refresh() raises RuntimeError (no data)."""
