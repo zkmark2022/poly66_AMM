@@ -17,3 +17,5 @@ class MarketContext:
     trade_count: int = 0
     shutdown_requested: bool = False
     active_orders: dict = field(default_factory=dict)
+    oracle_lag_threshold: float = 10.0
+    oracle_deviation_threshold: float = 20.0

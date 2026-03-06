@@ -7,7 +7,7 @@ from src.amm.utils.integer_math import clamp
 
 class ASEngine:
     def reservation_price(
-        self, mid_price: float, inventory_skew: float,
+        self, mid_price: int | float, inventory_skew: float,
         gamma: float, sigma: float, tau_hours: float,
     ) -> float:
         """r = s - q · γ · σ² · τ(h) × 100"""
