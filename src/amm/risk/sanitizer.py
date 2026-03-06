@@ -50,14 +50,10 @@ class OrderSanitizer:
         # ONE_SIDE: only allow quotes on the heavy side (reduce inventory skew)
         if defense == DefenseLevel.ONE_SIDE:
             skew = ctx.inventory.inventory_skew
-            if abs(skew) < 0.05:
-                # Near-balanced inventory — conservative: suppress NO to reduce exposure
-                if intent.side == "NO":
-                    return None
-            elif skew > 0 and intent.side == "NO":
-                # Long YES — suppress SELL NO to force YES reduction
+            if skew >= 0 and intent.side == "NO":
+                # Long or balanced YES — suppress SELL NO to force YES reduction
                 return None
-            elif skew < 0 and intent.side == "YES":
+            if skew < 0 and intent.side == "YES":
                 # Long NO — suppress SELL YES
                 return None
 

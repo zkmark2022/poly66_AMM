@@ -193,11 +193,12 @@ async def quote_cycle(
     """Single quote cycle for one market: Sync → Strategy → Risk → Execute."""
 
     # Step 1: Sync — poll new trades, refresh pending_sell
-    # Hold inventory_lock to prevent concurrent reconciler overwrites mid-apply
+    recent_trades = await poller.poll(ctx.market_id)
+    ctx.trade_count += len(recent_trades)
+    fresh = await inventory_cache.get(ctx.market_id)
+    # Hold inventory_lock only while writing to ctx.inventory to prevent
+    # reconciler from overwriting a stale value mid-apply
     async with ctx.inventory_lock:
-        recent_trades = await poller.poll(ctx.market_id)
-        ctx.trade_count += len(recent_trades)
-        fresh = await inventory_cache.get(ctx.market_id)
         if fresh is not None:
             ctx.inventory = fresh
     if ctx.phase == Phase.STABILIZATION:
@@ -402,7 +403,7 @@ async def reconcile_loop(
     while not any(ctx.shutdown_requested for ctx in contexts.values()):
         for market_id in market_ids:
             async with contexts[market_id].inventory_lock:
-                await reconciler.reconcile([market_id])
+                await reconciler.reconcile([market_id], n_markets_total=len(market_ids))
         await asyncio.sleep(interval_seconds)
 
 

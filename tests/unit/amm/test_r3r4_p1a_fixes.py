@@ -618,7 +618,7 @@ class TestP1InventoryLock:
         lock_acquired_while_reconciling = False
         original_reconcile_called = False
 
-        async def fake_reconcile(market_ids: list[str]) -> dict:
+        async def fake_reconcile(market_ids: list[str], n_markets_total: int = 0) -> dict:
             nonlocal lock_acquired_while_reconciling, original_reconcile_called
             original_reconcile_called = True
             # The lock should be acquired (locked) while reconcile runs
@@ -637,10 +637,10 @@ class TestP1InventoryLock:
             "inventory_lock must be held while reconcile runs"
         )
 
-    async def test_quote_cycle_acquires_inventory_lock_during_poll(
+    async def test_quote_cycle_does_not_hold_inventory_lock_during_poll(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """quote_cycle must hold inventory_lock while polling trades."""
+        """quote_cycle must NOT hold inventory_lock while polling trades (only during write)."""
         from src.amm.main import quote_cycle
         from src.amm.strategy.pricing.three_layer import ThreeLayerPricing
         from src.amm.strategy.pricing.anchor import AnchorPricing
@@ -657,6 +657,7 @@ class TestP1InventoryLock:
 
         async def fake_poll(market_id: str) -> list:
             nonlocal lock_held_during_poll
+            # Lock should NOT be held during I/O — only during the inventory write
             lock_held_during_poll = ctx.inventory_lock.locked()
             return []
 
@@ -693,8 +694,8 @@ class TestP1InventoryLock:
             inventory_cache=inventory_cache,
         )
 
-        assert lock_held_during_poll, (
-            "inventory_lock must be held while TradePoller.poll runs"
+        assert not lock_held_during_poll, (
+            "inventory_lock must NOT be held while TradePoller.poll runs — only during ctx.inventory write"
         )
 
 

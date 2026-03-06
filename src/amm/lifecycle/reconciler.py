@@ -22,7 +22,7 @@ class AMMReconciler:
         self._api = api
         self._cache = inventory_cache
 
-    async def reconcile(self, market_ids: list[str]) -> dict[str, dict]:
+    async def reconcile(self, market_ids: list[str], n_markets_total: int = 0) -> dict[str, dict]:
         """Full-state reconciliation for all markets.
 
         Fetches DB truth via API and compares with Redis cache.
@@ -36,7 +36,7 @@ class AMMReconciler:
         frozen_cents = int(bal.get("frozen_balance_cents", 0))
 
         results: dict[str, dict] = {}
-        n_markets = max(1, len(market_ids))
+        n_markets = max(1, n_markets_total if n_markets_total > 0 else len(market_ids))
         allocated_cash = cash_cents // n_markets
 
         for market_id in market_ids:
