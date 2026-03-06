@@ -54,6 +54,7 @@ class ASEngine:
             )
             return config.gamma
         age_days = (_date.today() - created).days
+        # Negative age (future creation date) is treated as EARLY
         if age_days <= 3:
             return GAMMA_TIERS["EARLY"]
         elif age_days <= 14:

@@ -12,6 +12,9 @@ class MicroPricing:
         bid_depth: int = 0,
         ask_depth: int = 0,
     ) -> float | None:
+        # Reject invalid or crossed books before depth check
+        if best_bid <= 0 or best_ask <= 0 or best_ask <= best_bid:
+            return None
         total_depth = bid_depth + ask_depth
         if total_depth < self._min_depth:
             # Thin book: don't trust it, caller falls back to anchor

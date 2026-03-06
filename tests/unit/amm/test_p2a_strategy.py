@@ -145,7 +145,7 @@ class TestMicroPricingAntiSpoof:
     def test_result_clamped_to_1_99(self) -> None:
         """Result is clamped to [1, 99]."""
         m = MicroPricing(min_depth_threshold=1)
-        result = m.compute(best_bid=1, best_ask=1, bid_depth=100, ask_depth=100)
+        result = m.compute(best_bid=1, best_ask=2, bid_depth=100, ask_depth=100)
         assert result is not None
         assert 1.0 <= result <= 99.0
 
