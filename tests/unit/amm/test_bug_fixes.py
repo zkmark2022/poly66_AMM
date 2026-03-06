@@ -302,6 +302,54 @@ class TestOrderManagerPendingSells:
         api.cancel_order.assert_not_called()
         api.place_order.assert_not_called()
 
+    async def test_replace_cancel_failure_does_not_place_new_order(self) -> None:
+        api = AsyncMock()
+        api.cancel_order.side_effect = Exception("cancel failed")
+        cache = AsyncMock()
+        mgr = OrderManager(api=api, cache=cache)
+        mgr.active_orders["existing"] = _make_order("existing", "YES", "SELL", 55, 100)
+
+        from src.amm.models.enums import QuoteAction
+        from src.amm.strategy.models import OrderIntent
+
+        intents = [OrderIntent(
+            action=QuoteAction.REPLACE,
+            side="YES",
+            direction="SELL",
+            price_cents=56,
+            quantity=100,
+        )]
+
+        await mgr.execute_intents(intents, "mkt-1")
+
+        api.cancel_order.assert_called_once_with("existing")
+        api.place_order.assert_not_called()
+        assert "existing" in mgr.active_orders
+
+    async def test_replace_place_failure_removes_old_order(self) -> None:
+        api = AsyncMock()
+        api.place_order.side_effect = Exception("place failed")
+        cache = AsyncMock()
+        mgr = OrderManager(api=api, cache=cache)
+        mgr.active_orders["existing"] = _make_order("existing", "YES", "SELL", 55, 100)
+
+        from src.amm.models.enums import QuoteAction
+        from src.amm.strategy.models import OrderIntent
+
+        intents = [OrderIntent(
+            action=QuoteAction.REPLACE,
+            side="YES",
+            direction="SELL",
+            price_cents=56,
+            quantity=100,
+        )]
+
+        await mgr.execute_intents(intents, "mkt-1")
+
+        api.cancel_order.assert_called_once_with("existing")
+        api.place_order.assert_called_once()
+        assert "existing" not in mgr.active_orders
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Bug 4: HTTP Client Sharing

@@ -1,14 +1,17 @@
 """Integration tests for the AMM quote cycle orchestrator."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 
 from src.amm.main import quote_cycle, run_market
 from src.amm.models.market_context import MarketContext
 from src.amm.models.inventory import Inventory
 from src.amm.config.models import MarketConfig
 from src.amm.models.enums import Phase, DefenseLevel
+from src.amm.oracle.polymarket_oracle import OracleState
 from src.amm.strategy.pricing.three_layer import ThreeLayerPricing
 from src.amm.strategy.pricing.anchor import AnchorPricing
 from src.amm.strategy.pricing.micro import MicroPricing
@@ -189,3 +192,21 @@ class TestQuoteCycle:
         assert ctx.defense_level == DefenseLevel.WIDEN
         # execute_intents still called (WIDEN doesn't stop quoting)
         services["order_mgr"].execute_intents.assert_called_once()
+
+    async def test_cycle_evaluates_oracle_without_refreshing_every_cycle(self) -> None:
+        ctx = _make_ctx()
+        ctx.config = MarketConfig(
+            market_id="mkt-1",
+            oracle_slug="test-oracle",
+            remaining_hours_override=24.0,
+        )
+        services = _make_services()
+        oracle = SimpleNamespace(
+            refresh=MagicMock(),
+            evaluate=MagicMock(return_value=OracleState.NORMAL),
+        )
+
+        await quote_cycle(ctx, oracle=oracle, **services)
+
+        oracle.refresh.assert_not_called()
+        oracle.evaluate.assert_called_once()
