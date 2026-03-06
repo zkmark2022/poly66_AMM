@@ -15,6 +15,7 @@ from src.amm.main import (
     _oracle_refresh_loop,
     _wait_for_task_shutdown,
     amm_main,
+    run_market,
     run_market_with_health,
 )
 from src.amm.models.inventory import Inventory
@@ -55,6 +56,45 @@ class TestAMMMain:
             await run_market_with_health(ctx, {}, state)
 
         assert state.markets_active == 0
+
+    async def test_run_market_accepts_oracle_from_services_without_duplicate_kwargs(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        ctx = _make_context()
+        ctx.shutdown_requested = False
+        oracle = object()
+        observed_calls: list[tuple[MarketContext, object | None, object | None]] = []
+
+        async def fake_quote_cycle(
+            market_ctx: MarketContext,
+            **kwargs: object,
+        ) -> None:
+            observed_calls.append((market_ctx, kwargs.get("oracle"), kwargs.get("phase_mgr")))
+            market_ctx.shutdown_requested = True
+
+        async def fake_sleep(_seconds: float) -> None:
+            ctx.shutdown_requested = True
+
+        monkeypatch.setattr("src.amm.main.quote_cycle", fake_quote_cycle)
+        monkeypatch.setattr("src.amm.main.asyncio.sleep", fake_sleep)
+
+        services = {
+            "api": object(),
+            "poller": object(),
+            "pricing": object(),
+            "as_engine": object(),
+            "gradient": object(),
+            "risk": object(),
+            "sanitizer": object(),
+            "order_mgr": object(),
+            "inventory_cache": object(),
+            "oracle": oracle,
+            "phase_mgr": "phase-manager",
+        }
+
+        await run_market(ctx, services, oracle=oracle)
+
+        assert observed_calls == [(ctx, oracle, "phase-manager")]
 
     @pytest.mark.skip(reason="TODO: amm_main integration test needs rework after merge conflicts")
     async def test_amm_main_starts_health_server_marks_ready_and_reconciles_periodically(

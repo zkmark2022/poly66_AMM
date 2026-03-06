@@ -304,9 +304,11 @@ async def run_market(
     oracle: PolymarketOracle | None = None,
 ) -> None:
     """Run quote cycles for a single market until shutdown requested."""
+    cycle_services = dict(services)
+    cycle_services.setdefault("oracle", oracle)
     while not ctx.shutdown_requested:
         try:
-            await quote_cycle(ctx, oracle=oracle, **services)
+            await quote_cycle(ctx, **cycle_services)
         except Exception as e:
             logger.error("Quote cycle error for %s: %s", ctx.market_id, e, exc_info=True)
         await asyncio.sleep(ctx.config.quote_interval_seconds)
