@@ -6,10 +6,10 @@ import math
 from datetime import date as _date
 from typing import TYPE_CHECKING
 
-logger = logging.getLogger(__name__)
-
 from src.amm.config.models import GAMMA_TIERS
 from src.amm.utils.integer_math import clamp
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from src.amm.config.models import MarketConfig
