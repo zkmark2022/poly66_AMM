@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import pytest
 from datetime import date, timedelta
-from unittest.mock import patch
 
 from src.amm.config.models import MarketConfig
 from src.amm.strategy.as_engine import ASEngine
