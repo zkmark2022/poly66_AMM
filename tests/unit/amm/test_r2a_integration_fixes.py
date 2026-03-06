@@ -151,7 +151,7 @@ class TestFix1OracleNotDuplicated:
         monkeypatch.setattr(main_mod, "GradientEngine", lambda: MagicMock())
         monkeypatch.setattr(main_mod, "DefenseStack", lambda cfg: MagicMock())
         monkeypatch.setattr(main_mod, "OrderSanitizer", lambda: MagicMock())
-        monkeypatch.setattr(main_mod, "OrderManager", lambda **kw: MagicMock())
+        monkeypatch.setattr(main_mod, "OrderManager", lambda **kw: AsyncMock())
         monkeypatch.setattr(main_mod, "PhaseManager", lambda config: MagicMock())
 
         import types

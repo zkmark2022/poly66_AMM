@@ -11,6 +11,7 @@ from typing import Any, Callable, cast
 import httpx
 
 from src.amm.cache.inventory_cache import InventoryCache
+from src.amm.cache.order_cache import OrderCache
 from src.amm.cache.protocols import AsyncRedisLike
 from src.amm.cache.redis_client import create_redis_client
 from src.amm.config.loader import ConfigLoader
@@ -26,6 +27,7 @@ from src.amm.lifecycle.reinvest import (
 )
 from src.amm.lifecycle.reconciler import AMMReconciler
 from src.amm.lifecycle.shutdown import GracefulShutdown
+from src.amm.lifecycle.winding_down import handle_winding_down
 from src.amm.models.enums import DefenseLevel, Phase
 from src.amm.models.market_context import MarketContext
 from src.amm.risk.defense_stack import DEFENSE_SEVERITY, DefenseStack
@@ -191,11 +193,13 @@ async def quote_cycle(
     """Single quote cycle for one market: Sync → Strategy → Risk → Execute."""
 
     # Step 1: Sync — poll new trades, refresh pending_sell
-    recent_trades = await poller.poll(ctx.market_id)
-    ctx.trade_count += len(recent_trades)
-    fresh = await inventory_cache.get(ctx.market_id)
-    if fresh is not None:
-        ctx.inventory = fresh
+    # Hold inventory_lock to prevent concurrent reconciler overwrites mid-apply
+    async with ctx.inventory_lock:
+        recent_trades = await poller.poll(ctx.market_id)
+        ctx.trade_count += len(recent_trades)
+        fresh = await inventory_cache.get(ctx.market_id)
+        if fresh is not None:
+            ctx.inventory = fresh
     if ctx.phase == Phase.STABILIZATION:
         await maybe_auto_reinvest(ctx, api, inventory_cache=inventory_cache)
 
@@ -274,6 +278,9 @@ async def quote_cycle(
             status = await api.get_market_status(ctx.market_id)
             ctx.last_known_market_active = status in {"active", "open"}
             ctx.market_status_checked_at = now
+            if status in {"resolved", "settled", "voided"}:
+                await handle_winding_down(ctx, api, status.upper(), order_mgr)
+                return
         except Exception:
             logger.warning(
                 "Market status fetch failed for %s — using last-known active=%s",
@@ -393,7 +400,9 @@ async def reconcile_loop(
 ) -> None:
     market_ids = list(contexts)
     while not any(ctx.shutdown_requested for ctx in contexts.values()):
-        await reconciler.reconcile(market_ids)
+        for market_id in market_ids:
+            async with contexts[market_id].inventory_lock:
+                await reconciler.reconcile([market_id])
         await asyncio.sleep(interval_seconds)
 
 
@@ -415,6 +424,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     token_mgr = TokenManager(base_url, username, password, http_client)
     api = AMMApiClient(base_url, token_mgr, http_client=http_client)
     inventory_cache = InventoryCache(typed_redis_client)
+    order_cache = OrderCache(typed_redis_client)
     config_loader = ConfigLoader(redis_client=typed_redis_client)
     global_cfg = await config_loader.load_global()
     health_state = HealthState()
@@ -481,6 +491,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
             ctx.oracle_deviation_threshold = _oracle_deviation_threshold
 
     tasks = []
+    market_order_managers: dict[str, OrderManager] = {}
     for ctx in contexts.values():
         poller = TradePoller(api=api, cache=inventory_cache)
         pricing = ThreeLayerPricing(
@@ -493,7 +504,9 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
         gradient = GradientEngine()
         risk = DefenseStack(ctx.config)
         sanitizer = OrderSanitizer()
-        order_mgr = OrderManager(api=api, cache=inventory_cache)
+        order_mgr = OrderManager(api=api, cache=inventory_cache, order_cache=order_cache)
+        await order_mgr.load_from_cache(ctx.market_id)
+        market_order_managers[ctx.market_id] = order_mgr
         phase_mgr = PhaseManager(config=ctx.config)
         market_oracle = market_oracles[ctx.market_id]
 
@@ -559,7 +572,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
                 if not task.done():
                     task.cancel()
         await _wait_for_task_shutdown(tasks + background_tasks, SHUTDOWN_TIMEOUT_SECONDS)
-        await shutdown.execute(contexts)
+        await shutdown.execute(contexts, order_managers=market_order_managers)
         await http_client.aclose()
         await redis_client.aclose()
 
