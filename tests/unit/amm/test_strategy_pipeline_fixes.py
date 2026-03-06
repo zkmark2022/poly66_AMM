@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -99,8 +99,6 @@ class TestWidenDefenseInQuoteCycle:
         from src.amm.strategy.gradient import GradientEngine
         from src.amm.risk.defense_stack import DefenseStack
         from src.amm.risk.sanitizer import OrderSanitizer
-        from src.amm.connector.order_manager import OrderManager
-        from src.amm.cache.inventory_cache import InventoryCache
 
         config = _make_config(widen_factor=1.5)
         ctx_normal = _make_ctx()

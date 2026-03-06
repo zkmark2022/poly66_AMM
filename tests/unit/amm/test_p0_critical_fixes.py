@@ -1,15 +1,14 @@
 """Tests for P0 critical bug fixes (2026-03-05 code review)."""
 from __future__ import annotations
 
-import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from src.amm.config.models import MarketConfig
 from src.amm.models.market_context import MarketContext
 from src.amm.models.inventory import Inventory
-from src.amm.models.enums import Phase, DefenseLevel
+from src.amm.models.enums import DefenseLevel
 from src.amm.oracle.polymarket_oracle import OracleState, PolymarketOracle
 from src.amm.risk.sanitizer import OrderSanitizer
 from src.amm.strategy.models import OrderIntent
