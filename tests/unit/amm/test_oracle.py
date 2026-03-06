@@ -78,6 +78,7 @@ class TestPolymarketOracleRefresh:
         oracle = PolymarketOracle(_make_config())
 
         mock_proc = MagicMock()
+        mock_proc.returncode = None  # process still running when timeout fires
         mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
         mock_proc.wait = AsyncMock()
 

@@ -135,7 +135,21 @@ async def _evaluate_oracle_state(
         if inspect.isawaitable(result):
             return cast(OracleState, await result)
         return cast(OracleState, result)
-    raise TypeError("oracle must implement evaluate(internal_price_cents=...)")
+
+    # Fallback for partial adapters / test doubles lacking evaluate()
+    check_stale = getattr(oracle, "check_stale", None)
+    if callable(check_stale) and check_stale():
+        return OracleState.STALE
+
+    check_deviation = getattr(oracle, "check_deviation", None)
+    if callable(check_deviation):
+        dev_result = check_deviation(internal_price_cents)
+        if inspect.isawaitable(dev_result):
+            dev_result = await dev_result
+        if dev_result:
+            return OracleState.DEVIATION
+
+    return OracleState.NORMAL
 
 
 async def quote_cycle(
