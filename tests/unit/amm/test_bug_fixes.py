@@ -1,10 +1,10 @@
 """Regression tests for PR #9 bug fixes."""
 from __future__ import annotations
-
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
+import pytest
 
 from src.amm.config.loader import ConfigLoader
 from src.amm.config.models import GlobalConfig
@@ -345,3 +345,105 @@ class TestHttpClientSharing:
         api._client = AsyncMock(spec=httpx.AsyncClient)
         await api.close()
         api._client.aclose.assert_called_once()
+
+
+class TestApiClientRetryStrategy:
+    async def test_get_retries_on_503_with_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        request = httpx.Request("GET", "http://localhost/account/balance")
+        retryable = httpx.Response(503, request=request)
+        success = httpx.Response(
+            200,
+            request=request,
+            json={"data": {"balance_cents": 100}},
+        )
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.request.side_effect = [retryable, success]
+        tm = MagicMock(spec=TokenManager)
+        tm.access_token = "tok"
+        api = AMMApiClient("http://localhost", tm, http_client=client)
+
+        sleep_calls: list[float] = []
+
+        async def fake_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        monkeypatch.setattr("src.amm.connector.api_client.asyncio.sleep", fake_sleep)
+
+        result = await api.get_balance()
+
+        assert result == {"data": {"balance_cents": 100}}
+        assert client.request.await_count == 2
+        assert len(sleep_calls) == 1
+        assert 1 <= sleep_calls[0] <= 2
+
+    async def test_get_retries_on_timeout_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        request = httpx.Request("GET", "http://localhost/account/balance")
+        success = httpx.Response(
+            200,
+            request=request,
+            json={"data": {"balance_cents": 100}},
+        )
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.request.side_effect = [
+            httpx.TimeoutException("timed out"),
+            success,
+        ]
+        tm = MagicMock(spec=TokenManager)
+        tm.access_token = "tok"
+        api = AMMApiClient("http://localhost", tm, http_client=client)
+
+        sleep_calls: list[float] = []
+
+        async def fake_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        monkeypatch.setattr("src.amm.connector.api_client.asyncio.sleep", fake_sleep)
+
+        result = await api.get_balance()
+
+        assert result == {"data": {"balance_cents": 100}}
+        assert client.request.await_count == 2
+        assert sleep_calls == [1]
+
+    async def test_post_does_not_retry_on_503(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        request = httpx.Request("POST", "http://localhost/orders")
+        retryable = httpx.Response(503, request=request)
+
+        client = AsyncMock(spec=httpx.AsyncClient)
+        client.request.return_value = retryable
+        tm = MagicMock(spec=TokenManager)
+        tm.access_token = "tok"
+        api = AMMApiClient("http://localhost", tm, http_client=client)
+
+        sleep = AsyncMock()
+        monkeypatch.setattr("src.amm.connector.api_client.asyncio.sleep", sleep)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await api.place_order({"market_id": "mkt-1", "side": "YES"})
+
+        client.request.assert_awaited_once()
+        sleep.assert_not_awaited()
+
+
+class TestTokenRefreshRotation:
+    async def test_refresh_updates_rotated_refresh_token(self) -> None:
+        client = AsyncMock(spec=httpx.AsyncClient)
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            "data": {
+                "access_token": "new-access",
+                "refresh_token": "new-refresh",
+            }
+        }
+        client.post.return_value = response
+
+        tm = TokenManager("http://localhost", "amm", "secret", client=client)
+        tm._refresh_token = "old-refresh"
+
+        await tm.refresh()
+
+        assert tm.access_token == "new-access"
+        assert tm._refresh_token == "new-refresh"

@@ -1,4 +1,5 @@
 """Poll trades endpoint to sync AMM inventory into Redis."""
+from collections import deque
 import logging
 
 from src.amm.connector.api_client import AMMApiClient, _sanitize_id
@@ -6,6 +7,8 @@ from src.amm.cache.inventory_cache import InventoryCache
 from src.pm_account.domain.constants import AMM_USER_ID
 
 logger = logging.getLogger(__name__)
+
+MAX_DEDUP_WINDOW = 1000
 
 
 class TradePoller:
@@ -15,7 +18,7 @@ class TradePoller:
         self._cache = cache
         self._amm_user_id = amm_user_id
         self._cursors: dict[str, str] = {}
-        self._processed_ids: set[str] = set()
+        self._processed_ids: dict[str, deque[str]] = {}
 
     async def poll(self, market_id: str) -> list[dict]:
         """Poll for new trades, update Redis inventory. Returns new AMM trades processed."""
@@ -27,9 +30,8 @@ class TradePoller:
         new_trades: list[dict] = []
         for trade in trades:
             trade_id = _sanitize_id(trade["id"])
-            if trade_id in self._processed_ids:
+            if self._is_processed(market_id, trade_id):
                 continue
-            self._processed_ids.add(trade_id)
             # Only apply trades that belong to this AMM account
             if not self._is_amm_trade(trade):
                 logger.warning("Ignoring third-party trade %s", trade_id)
@@ -46,6 +48,15 @@ class TradePoller:
         """Return True if this trade involves the AMM account as buyer or seller."""
         return (trade.get("buy_user_id") == self._amm_user_id
                 or trade.get("sell_user_id") == self._amm_user_id)
+
+    def _is_processed(self, market_id: str, trade_id: str) -> bool:
+        market_dedup = self._processed_ids.setdefault(
+            market_id, deque(maxlen=MAX_DEDUP_WINDOW)
+        )
+        if trade_id in market_dedup:
+            return True
+        market_dedup.append(trade_id)
+        return False
 
     async def _apply_trade(self, market_id: str, trade: dict) -> None:
         scenario = trade["scenario"]
