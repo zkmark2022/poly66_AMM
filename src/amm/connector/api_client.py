@@ -47,7 +47,7 @@ class AMMApiClient:
         method = method.upper()
         can_retry = method in {"GET", "DELETE"}
 
-        for attempt in range(MAX_RETRY_ATTEMPTS):
+        for attempt in range(max(1, MAX_RETRY_ATTEMPTS)):
             headers = {"Authorization": f"Bearer {self._token_manager.access_token}"}
             try:
                 resp = await self._client.request(method, path, headers=headers, **kwargs)

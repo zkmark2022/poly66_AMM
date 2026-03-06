@@ -7,6 +7,7 @@ floating-point precision issues. Prices in cents [1, 99].
 
 def ceiling_div(numerator: int, denominator: int) -> int:
     """Integer ceiling division: ⌈a/b⌉. Always rounds UP."""
+    assert denominator > 0, f"ceiling_div requires positive denominator, got {denominator}"
     if numerator == 0:
         return 0
     return (numerator + denominator - 1) // denominator

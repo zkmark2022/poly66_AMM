@@ -35,6 +35,11 @@ class OrderSanitizer:
         defense: DefenseLevel,
         ctx: "MarketContext",
     ) -> OrderIntent | None:
+        # AMM NEVER issues BUY orders — reject immediately
+        if intent.direction != "SELL":
+            logger.critical("Sanitizer blocked BUY intent: %s", intent)
+            return None
+
         # Price clamping
         price = clamp(intent.price_cents, 1, 99)
 

@@ -77,7 +77,7 @@ async def quote_cycle(
         recent_trades=recent_trades,
     )
 
-    tau = ctx.config.remaining_hours_override or 24.0
+    tau = ctx.config.remaining_hours_override if ctx.config.remaining_hours_override is not None else 24.0
     sigma = as_engine.bernoulli_sigma(mid)
     gamma = ctx.config.gamma
     kappa = ctx.config.kappa
@@ -206,6 +206,11 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
             oracle = PolymarketOracle(_slug)
             logger.info("Oracle enabled: market_slug=%s, lag_threshold=%s, deviation_threshold=%s", 
                        _slug, _oracle_lag_threshold, _oracle_deviation_threshold)
+            # Warm-up: fetch price once so check_lag() doesn't deadlock on first cycle
+            try:
+                await oracle.get_price()
+            except Exception as e:
+                logger.warning("Oracle warm-up fetch failed (will retry in cycle): %s", e)
             # Store thresholds in contexts
             for ctx in contexts.values():
                 ctx.oracle_lag_threshold = _oracle_lag_threshold
