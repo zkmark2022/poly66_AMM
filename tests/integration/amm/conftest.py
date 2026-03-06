@@ -179,7 +179,7 @@ def make_context(
     market_id: str = MARKET_ID,
     inventory: Inventory | None = None,
     defense_level: DefenseLevel = DefenseLevel.NORMAL,
-    daily_pnl_cents: int = 0,
+    session_pnl_cents: int = 0,
     config: MarketConfig | None = None,
 ) -> MarketContext:
     """Helper to build a MarketContext for tests."""
@@ -202,5 +202,5 @@ def make_context(
         inventory=inventory,
         phase=Phase.STABILIZATION,
         defense_level=defense_level,
-        daily_pnl_cents=daily_pnl_cents,
+        session_pnl_cents=session_pnl_cents,
     )

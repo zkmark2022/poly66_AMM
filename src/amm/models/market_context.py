@@ -14,11 +14,12 @@ class MarketContext:
     inventory: Inventory
     phase: Phase = Phase.EXPLORATION
     defense_level: DefenseLevel = DefenseLevel.NORMAL
-    daily_pnl_cents: int = 0
+    session_pnl_cents: int = 0
     initial_inventory_value_cents: int = 0
     trade_count: int = 0
     shutdown_requested: bool = False
-    last_known_market_active: bool = True
+    last_known_market_active: bool = False
+    market_status_checked_at: float = 0.0
     active_orders: dict = field(default_factory=dict)
     oracle_lag_threshold: float = 10.0
     oracle_deviation_threshold: float = 20.0

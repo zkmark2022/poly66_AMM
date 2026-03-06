@@ -28,7 +28,7 @@ from src.amm.lifecycle.reconciler import AMMReconciler
 from src.amm.lifecycle.shutdown import GracefulShutdown
 from src.amm.models.enums import DefenseLevel, Phase
 from src.amm.models.market_context import MarketContext
-from src.amm.risk.defense_stack import DefenseStack
+from src.amm.risk.defense_stack import DEFENSE_SEVERITY, DefenseStack
 from src.amm.risk.sanitizer import OrderSanitizer
 from src.amm.strategy.as_engine import ASEngine
 from src.amm.strategy.gradient import GradientEngine
@@ -43,12 +43,8 @@ from src.amm.strategy.pricing.three_layer import ThreeLayerPricing
 logger = logging.getLogger(__name__)
 SHUTDOWN_TIMEOUT_SECONDS = 30.0
 
-_DEFENSE_SEVERITY: dict[DefenseLevel, int] = {
-    DefenseLevel.NORMAL: 0,
-    DefenseLevel.WIDEN: 1,
-    DefenseLevel.ONE_SIDE: 2,
-    DefenseLevel.KILL_SWITCH: 3,
-}
+_DEFENSE_SEVERITY = DEFENSE_SEVERITY  # single source of truth; avoids silent divergence
+_MARKET_STATUS_TTL = 30.0  # seconds between live market-status API fetches
 
 
 def _build_signal_handler(
@@ -238,8 +234,8 @@ async def quote_cycle(
     ask_ladder = gradient.build_ask_ladder(ask, ctx.config, base_qty)
     bid_ladder = gradient.build_bid_ladder(bid, ctx.config, base_qty)
 
-    # Step 2.5: Update daily P&L — must happen before risk evaluation
-    ctx.daily_pnl_cents = ctx.inventory.total_value_cents(mid) - ctx.initial_inventory_value_cents
+    # Step 2.5: Update session P&L — must happen before risk evaluation
+    ctx.session_pnl_cents = ctx.inventory.total_value_cents(mid) - ctx.initial_inventory_value_cents
 
     # Step 3: Risk — oracle check then defense evaluation
     oracle_defense = DefenseLevel.NORMAL
@@ -256,21 +252,23 @@ async def quote_cycle(
                 oracle_state, ctx.market_id, mid,
             )
 
-    # Fetch live market status — do not hardcode market_active=True
-    try:
-        status = await api.get_market_status(ctx.market_id)
-        market_is_active = status in {"active", "open"}
-        ctx.last_known_market_active = market_is_active
-    except Exception:
-        market_is_active = ctx.last_known_market_active
-        logger.warning(
-            "Market status fetch failed for %s — using last-known active=%s",
-            ctx.market_id, market_is_active,
-        )
+    # Fetch live market status with TTL cache — avoids a REST call on every cycle
+    now = time.monotonic()
+    if now - ctx.market_status_checked_at >= _MARKET_STATUS_TTL:
+        try:
+            status = await api.get_market_status(ctx.market_id)
+            ctx.last_known_market_active = status in {"active", "open"}
+            ctx.market_status_checked_at = now
+        except Exception:
+            logger.warning(
+                "Market status fetch failed for %s — using last-known active=%s",
+                ctx.market_id, ctx.last_known_market_active,
+            )
+    market_is_active = ctx.last_known_market_active
 
     risk_defense = risk.evaluate(
         inventory_skew=ctx.inventory.inventory_skew,
-        daily_pnl=ctx.daily_pnl_cents,
+        daily_pnl=ctx.session_pnl_cents,
         market_active=market_is_active,
     )
     defense = max(risk_defense, oracle_defense, key=lambda d: _DEFENSE_SEVERITY[d])

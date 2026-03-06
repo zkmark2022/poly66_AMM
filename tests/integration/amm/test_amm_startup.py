@@ -227,7 +227,7 @@ class TestAMMStartupContext:
         ctx = contexts[MARKET_ID]
         assert ctx.phase == Phase.EXPLORATION
         assert ctx.defense_level == DefenseLevel.NORMAL
-        assert ctx.daily_pnl_cents == 0
+        assert ctx.session_pnl_cents == 0
 
     async def test_inventory_written_to_redis(
         self, fake_redis, market_config: MarketConfig

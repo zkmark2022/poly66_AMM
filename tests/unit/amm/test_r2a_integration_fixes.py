@@ -2,7 +2,7 @@
 
 Covers:
   FIX 1: oracle not duplicated in services dict
-  FIX 2: daily_pnl_cents updated each quote_cycle
+  FIX 2: session_pnl_cents updated each quote_cycle
   FIX 3: OracleState.KILL_SWITCH not downgraded by risk.evaluate()
   FIX 4: market_active=False triggers KILL_SWITCH
 """
@@ -170,43 +170,43 @@ class TestFix1OracleNotDuplicated:
 
 
 # ---------------------------------------------------------------------------
-# FIX 2: daily_pnl_cents must be updated each quote_cycle
+# FIX 2: session_pnl_cents must be updated each quote_cycle
 # ---------------------------------------------------------------------------
 
-class TestFix2DailyPnlUpdates:
-    """ctx.daily_pnl_cents must be updated each quote_cycle iteration."""
+class TestFix2SessionPnlUpdates:
+    """ctx.session_pnl_cents must be updated each quote_cycle iteration."""
 
-    async def test_daily_pnl_updates_each_cycle(self) -> None:
+    async def test_session_pnl_updates_each_cycle(self) -> None:
         from src.amm.main import quote_cycle
 
         ctx = _make_context()
         # Set initial_inventory_value_cents so pnl is computed relative to it
-        ctx.initial_inventory_value_cents = 510_000  # type: ignore[attr-defined]
+        ctx.initial_inventory_value_cents = 510_000
 
         services = _make_services(mid_return=50)
 
-        assert ctx.daily_pnl_cents == 0
+        assert ctx.session_pnl_cents == 0
 
         await quote_cycle(ctx, **services)
 
         # inventory.total_value_cents(50) = 500_000 + 100*50 + 100*50 = 510_000
         # pnl = 510_000 - 510_000 = 0 (no change yet, but it must have been computed)
-        # The key assertion: daily_pnl_cents was SET (not left at default 0 without computation)
+        # The key assertion: session_pnl_cents was SET (not left at default 0 without computation)
         # Use a different initial value to confirm real computation happened
         ctx2 = _make_context()
-        ctx2.initial_inventory_value_cents = 400_000  # type: ignore[attr-defined]
+        ctx2.initial_inventory_value_cents = 400_000
         services2 = _make_services(mid_return=50)
         await quote_cycle(ctx2, **services2)
 
         # inventory.total_value_cents(50) = 500_000 + 100*50 + 100*50 = 510_000
         # pnl = 510_000 - 400_000 = 110_000
-        assert ctx2.daily_pnl_cents == 110_000
+        assert ctx2.session_pnl_cents == 110_000
 
     async def test_initial_inventory_value_cents_field_exists(self) -> None:
         """MarketContext must have initial_inventory_value_cents field."""
         ctx = _make_context()
         # This will raise AttributeError if field doesn't exist
-        _ = ctx.initial_inventory_value_cents  # type: ignore[attr-defined]
+        _ = ctx.initial_inventory_value_cents
 
 
 # ---------------------------------------------------------------------------
@@ -220,8 +220,7 @@ class TestFix3OracleKillSwitchNotDowngraded:
         from src.amm.main import quote_cycle
 
         ctx = _make_context()
-        ctx.initial_inventory_value_cents = 0  # type: ignore[attr-defined]
-
+        ctx.initial_inventory_value_cents = 0
         services = _make_services()
         # risk says NORMAL
         services["risk"].evaluate.return_value = DefenseLevel.NORMAL
@@ -251,8 +250,7 @@ class TestFix3OracleKillSwitchNotDowngraded:
         from src.amm.main import quote_cycle
 
         ctx = _make_context()
-        ctx.initial_inventory_value_cents = 0  # type: ignore[attr-defined]
-
+        ctx.initial_inventory_value_cents = 0
         services = _make_services()
         services["risk"].evaluate.return_value = DefenseLevel.ONE_SIDE
 
@@ -277,8 +275,7 @@ class TestFix3OracleKillSwitchNotDowngraded:
         from src.amm.main import quote_cycle
 
         ctx = _make_context()
-        ctx.initial_inventory_value_cents = 0  # type: ignore[attr-defined]
-
+        ctx.initial_inventory_value_cents = 0
         services = _make_services()
         services["risk"].evaluate.return_value = DefenseLevel.WIDEN
 
@@ -303,8 +300,7 @@ class TestFix4MarketInactiveTriggersKillSwitch:
         from src.amm.main import quote_cycle
 
         ctx = _make_context()
-        ctx.initial_inventory_value_cents = 0  # type: ignore[attr-defined]
-
+        ctx.initial_inventory_value_cents = 0
         # Market is inactive
         services = _make_services(market_status="closed")
         # DefenseStack.evaluate() with market_active=False returns KILL_SWITCH
@@ -329,8 +325,7 @@ class TestFix4MarketInactiveTriggersKillSwitch:
         from src.amm.main import quote_cycle
 
         ctx = _make_context()
-        ctx.initial_inventory_value_cents = 0  # type: ignore[attr-defined]
-
+        ctx.initial_inventory_value_cents = 0
         services = _make_services(market_status="closed")
 
         risk_calls: list[dict] = []
