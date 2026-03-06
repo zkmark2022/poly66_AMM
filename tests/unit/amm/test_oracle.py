@@ -26,6 +26,32 @@ def _make_config(**kwargs: object) -> MarketConfig:
 
 class TestPolymarketOracleRefresh:
     @pytest.mark.asyncio
+    async def test_refresh_supports_legacy_positional_slug_constructor(self) -> None:
+        """Legacy callers passing the slug positionally should still work."""
+        oracle = PolymarketOracle("will-btc-exceed-100000")
+
+        mock_proc = MagicMock()
+        mock_proc.communicate = AsyncMock(return_value=(
+            json.dumps({"outcomePrices": ["0.65", "0.35"]}).encode(),
+            b"",
+        ))
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+            await oracle.refresh()
+
+        mock_exec.assert_called_once_with(
+            "/opt/homebrew/bin/polymarket",
+            "-o",
+            "json",
+            "markets",
+            "get",
+            "will-btc-exceed-100000",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        assert oracle.get_yes_price() == pytest.approx(65.0)
+
+    @pytest.mark.asyncio
     async def test_refresh_is_awaitable_for_config_constructor(self) -> None:
         """refresh() must be async on the unified oracle implementation."""
         oracle = PolymarketOracle(_make_config())
@@ -62,7 +88,7 @@ class TestPolymarketOracleRefresh:
             await oracle.refresh()
 
         mock_exec.assert_called_once_with(
-            "polymarket",
+            "/opt/homebrew/bin/polymarket",
             "-o",
             "json",
             "markets",
@@ -100,14 +126,22 @@ class TestPolymarketOracleRefresh:
 
         mock_proc = MagicMock()
         mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_proc.wait = AsyncMock()
 
         with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec", return_value=mock_proc):
             with pytest.raises(RuntimeError, match="timed out"):
                 await oracle.refresh()
 
+        mock_proc.kill.assert_called_once_with()
+        mock_proc.wait.assert_awaited_once_with()
         assert oracle.check_stale() is True
         with pytest.raises(RuntimeError, match="No price data"):
             oracle.get_yes_price()
+
+    def test_constructor_rejects_conflicting_config_and_market_slug(self) -> None:
+        """Passing both config and market_slug should fail explicitly."""
+        with pytest.raises(TypeError, match="mutually exclusive"):
+            PolymarketOracle(_make_config(), market_slug="other-market")
 
 
 class TestPolymarketOracleCheckDeviation:

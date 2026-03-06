@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from enum import StrEnum
 
@@ -17,7 +18,7 @@ from src.amm.config.models import MarketConfig
 from src.amm.models.enums import DefenseLevel
 
 logger = logging.getLogger(__name__)
-_POLYMARKET_BIN = "polymarket"
+_POLYMARKET_BIN = os.environ.get("POLYMARKET_BIN", "/opt/homebrew/bin/polymarket")
 
 
 class OracleState(StrEnum):
@@ -47,7 +48,7 @@ class PolymarketOracle:
 
     def __init__(
         self,
-        config: MarketConfig | None = None,
+        config: MarketConfig | str | None = None,
         *,
         market_slug: str | None = None,
         oracle_stale_seconds: float = 3.0,
@@ -55,6 +56,11 @@ class PolymarketOracle:
         oracle_lvr_window_seconds: float = 0.5,
         oracle_lvr_threshold: float = 0.20,
     ) -> None:
+        if config is not None and market_slug is not None:
+            raise TypeError("config and market_slug are mutually exclusive")
+        if isinstance(config, str):
+            market_slug = config
+            config = None
         if config is None:
             if market_slug is None:
                 raise TypeError("PolymarketOracle requires config or market_slug")
@@ -85,13 +91,16 @@ class PolymarketOracle:
         self._last_refresh_time = now
         self._price_history.append((now, price))
         self.last_price = price
-        self.last_update = time.time()
+        self.last_update = now
         # Prune history older than 60 seconds (keep memory bounded)
         cutoff = now - 60.0
         self._price_history = [(t, p) for t, p in self._price_history if t >= cutoff]
 
     async def get_price(self) -> float:
-        """Refresh and return the latest YES price in cents."""
+        """Refresh and return the latest YES price in cents.
+
+        Raises RuntimeError if the CLI fails, times out, or returns malformed data.
+        """
         await self.refresh()
         return self.get_yes_price()
 
@@ -111,10 +120,10 @@ class PolymarketOracle:
         return (time.monotonic() - self._last_refresh_time) > self._config.oracle_stale_seconds
 
     def check_lag(self, threshold_seconds: float = 3.0) -> bool:
-        """Compatibility shim for older callers using wall-clock lag checks."""
+        """Compatibility shim for older callers using the previous lag API."""
         if self.last_update is None:
             return True
-        return (time.time() - self.last_update) > threshold_seconds
+        return (time.monotonic() - self.last_update) > threshold_seconds
 
     def check_deviation(self, internal_price_cents: float) -> bool:
         """Return True if |oracle_price - internal_price| exceeds deviation threshold."""
@@ -158,6 +167,7 @@ class PolymarketOracle:
 
     async def _fetch_price(self) -> float:
         """Call polymarket CLI and parse YES price from outcomePrices field."""
+        proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 _POLYMARKET_BIN,
@@ -179,18 +189,22 @@ class PolymarketOracle:
                 return float(outcome_prices[0]) * 100.0
             raise RuntimeError("polymarket CLI response missing outcomePrices")
         except asyncio.TimeoutError:
+            if proc is not None:
+                proc.kill()
+                await proc.wait()
             logger.warning("PolymarketOracle refresh timeout for %s", self._config.oracle_slug)
             raise RuntimeError(
                 f"polymarket CLI timed out for {self._config.oracle_slug}"
             ) from None
+        except RuntimeError:
+            logger.warning("PolymarketOracle refresh failed for %s", self._config.oracle_slug)
+            raise
         except Exception as exc:
             logger.warning(
                 "PolymarketOracle refresh failed for %s: %s",
                 self._config.oracle_slug,
                 exc,
             )
-            if isinstance(exc, RuntimeError):
-                raise
             raise RuntimeError(
                 f"polymarket CLI failed for {self._config.oracle_slug}"
             ) from exc

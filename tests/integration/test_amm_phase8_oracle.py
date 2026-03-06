@@ -266,7 +266,7 @@ class TestOracleCLI:
                 await oracle.refresh()
 
         mock_exec.assert_called_once_with(
-            "polymarket",
+            "/opt/homebrew/bin/polymarket",
             "-o",
             "json",
             "markets",

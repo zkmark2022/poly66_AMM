@@ -10,7 +10,7 @@ from src.amm.config.models import GAMMA_TIERS
 from src.amm.utils.integer_math import clamp
 
 logger = logging.getLogger(__name__)
-_MIN_TOTAL_SPREAD_CENTS = 4.0
+_MIN_TOTAL_SPREAD_CENTS = 2.0
 
 if TYPE_CHECKING:
     from src.amm.config.models import MarketConfig
@@ -34,10 +34,10 @@ class ASEngine:
         return inventory_component + depth_component
 
     def bernoulli_sigma(self, mid_price_cents: int) -> float:
-        """σ = sqrt(p(1-p)) / 100 for binary prediction market."""
+        """σ = sqrt(p(1-p)) in bounded price units for a 0-100 binary market."""
         p = mid_price_cents / 100.0
         p = max(0.01, min(0.99, p))
-        return math.sqrt(p * (1 - p)) / 100.0
+        return math.sqrt(p * (1 - p))
 
     def get_gamma(self, tier: str) -> float:
         return GAMMA_TIERS.get(tier, 0.3)

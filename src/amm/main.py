@@ -125,7 +125,7 @@ async def _refresh_oracle(oracle: PolymarketOracle) -> None:
 
 
 async def _evaluate_oracle_state(
-    oracle: Any,
+    oracle: PolymarketOracle,
     ctx: MarketContext,
     internal_price_cents: float,
 ) -> OracleState:
@@ -145,9 +145,10 @@ async def _evaluate_oracle_state(
             return OracleState.LVR
         deviation = oracle.check_deviation(internal_price_cents)
     else:
-        if oracle.check_lag(threshold_seconds=ctx.oracle_lag_threshold):
+        legacy_oracle = cast(Any, oracle)
+        if legacy_oracle.check_lag(threshold_seconds=ctx.oracle_lag_threshold):
             return OracleState.STALE
-        deviation = oracle.check_deviation(
+        deviation = legacy_oracle.check_deviation(
             internal_price_cents,
             threshold=ctx.oracle_deviation_threshold,
         )
