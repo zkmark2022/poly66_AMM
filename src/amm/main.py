@@ -28,7 +28,7 @@ from src.amm.lifecycle.reconciler import AMMReconciler
 from src.amm.lifecycle.shutdown import GracefulShutdown
 from src.amm.models.enums import DefenseLevel, Phase
 from src.amm.models.market_context import MarketContext
-from src.amm.risk.defense_stack import DefenseStack
+from src.amm.risk.defense_stack import DEFENSE_SEVERITY, DefenseStack
 from src.amm.risk.sanitizer import OrderSanitizer
 from src.amm.strategy.as_engine import ASEngine
 from src.amm.strategy.gradient import GradientEngine
@@ -42,6 +42,9 @@ from src.amm.strategy.pricing.three_layer import ThreeLayerPricing
 
 logger = logging.getLogger(__name__)
 SHUTDOWN_TIMEOUT_SECONDS = 30.0
+
+_DEFENSE_SEVERITY = DEFENSE_SEVERITY  # single source of truth; avoids silent divergence
+_MARKET_STATUS_TTL = 30.0  # seconds between live market-status API fetches
 
 
 def _build_signal_handler(
@@ -88,7 +91,7 @@ async def _wait_for_task_shutdown(tasks: list[asyncio.Task], timeout_seconds: fl
 
 
 async def _oracle_refresh_loop(
-    oracle: Any,
+    oracle: PolymarketOracle,
     interval_seconds: float,
     shutdown_contexts: dict[str, MarketContext],
 ) -> None:
@@ -108,7 +111,7 @@ async def _oracle_refresh_loop(
         await asyncio.sleep(interval_seconds)
 
 
-async def _refresh_oracle(oracle: Any) -> None:
+async def _refresh_oracle(oracle: PolymarketOracle) -> None:
     refresh = getattr(oracle, "refresh", None)
     if callable(refresh):
         if inspect.iscoroutinefunction(refresh):
@@ -123,7 +126,7 @@ async def _refresh_oracle(oracle: Any) -> None:
 
 
 async def _evaluate_oracle_state(
-    oracle: Any,
+    oracle: PolymarketOracle,
     ctx: MarketContext,
     internal_price_cents: float,
 ) -> OracleState:
@@ -131,8 +134,8 @@ async def _evaluate_oracle_state(
     if callable(evaluate):
         result = evaluate(internal_price_cents=internal_price_cents)
         if inspect.isawaitable(result):
-            return cast(OracleState, await result)
-        return cast(OracleState, result)
+            return await result
+        return result
 
     check_stale = getattr(oracle, "check_stale", None)
     if callable(check_stale):
@@ -169,7 +172,7 @@ async def quote_cycle(
     sanitizer: OrderSanitizer,
     order_mgr: OrderManager,
     inventory_cache: InventoryCache,
-    oracle: Any | None = None,
+    oracle: PolymarketOracle | None = None,
     phase_mgr: PhaseManager | None = None,
 ) -> None:
     """Single quote cycle for one market: Sync → Strategy → Risk → Execute."""
@@ -231,29 +234,44 @@ async def quote_cycle(
     ask_ladder = gradient.build_ask_ladder(ask, ctx.config, base_qty)
     bid_ladder = gradient.build_bid_ladder(bid, ctx.config, base_qty)
 
+    # Step 2.5: Update session P&L — must happen before risk evaluation
+    ctx.session_pnl_cents = ctx.inventory.total_value_cents(mid) - ctx.initial_inventory_value_cents
+
     # Step 3: Risk — oracle check then defense evaluation
-    oracle_passive = False
+    oracle_defense = DefenseLevel.NORMAL
     if oracle is not None and ctx.config.oracle_slug:
         oracle_state = await _evaluate_oracle_state(
             oracle,
             ctx,
             internal_price_cents=float(mid),
         )
+        oracle_defense = oracle_state.defense_level
         if oracle_state != OracleState.NORMAL:
-            ctx.defense_level = oracle_state.defense_level
             logger.warning(
-                "Oracle price deviation detected for %s (internal mid=%.1f) — forcing ONE_SIDE",
-                ctx.market_id, mid,
+                "Oracle state %s for %s (internal mid=%.1f)",
+                oracle_state, ctx.market_id, mid,
             )
-            oracle_passive = True
 
-    defense = risk.evaluate(
+    # Fetch live market status with TTL cache — avoids a REST call on every cycle
+    now = time.monotonic()
+    if now - ctx.market_status_checked_at >= _MARKET_STATUS_TTL:
+        try:
+            status = await api.get_market_status(ctx.market_id)
+            ctx.last_known_market_active = status in {"active", "open"}
+            ctx.market_status_checked_at = now
+        except Exception:
+            logger.warning(
+                "Market status fetch failed for %s — using last-known active=%s",
+                ctx.market_id, ctx.last_known_market_active,
+            )
+    market_is_active = ctx.last_known_market_active
+
+    risk_defense = risk.evaluate(
         inventory_skew=ctx.inventory.inventory_skew,
-        daily_pnl=ctx.daily_pnl_cents,
-        market_active=True,
+        daily_pnl=ctx.session_pnl_cents,
+        market_active=market_is_active,
     )
-    if oracle_passive and defense == DefenseLevel.NORMAL:
-        defense = DefenseLevel.ONE_SIDE
+    defense = max(risk_defense, oracle_defense, key=lambda d: _DEFENSE_SEVERITY[d])
     ctx.defense_level = defense
 
     if not defense.is_quoting_active:
@@ -283,7 +301,7 @@ async def quote_cycle(
 async def run_market(
     ctx: MarketContext,
     services: dict[str, Any],
-    oracle: Any | None = None,
+    oracle: PolymarketOracle | None = None,
 ) -> None:
     """Run quote cycles for a single market until shutdown requested."""
     while not ctx.shutdown_requested:
@@ -298,7 +316,7 @@ async def run_market_with_health(
     ctx: MarketContext,
     services: dict[str, Any],
     health_state: HealthState,
-    oracle: Any | None = None,
+    oracle: PolymarketOracle | None = None,
 ) -> None:
     try:
         await run_market(ctx, services, oracle=oracle)
@@ -367,37 +385,38 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, _signal_handler)
 
-    # Build per-market services
-    # Load oracle config
-    # Gemini fix: use project root detection instead of fragile .parent chain
-    _project_root = Path(__file__).resolve().parent.parent.parent  # src/amm/main.py -> project root
+    # Build per-market oracles — each market gets its own oracle instance
+    # so different oracle_slug configs don't pollute each other.
+    market_oracles: dict[str, PolymarketOracle | None] = {}
+    for mid, ctx in contexts.items():
+        if ctx.config.oracle_slug:
+            market_oracle = PolymarketOracle(ctx.config.oracle_slug)
+            logger.info("Oracle enabled for %s: slug=%s", mid, ctx.config.oracle_slug)
+            try:
+                await market_oracle.get_price()
+            except Exception as e:
+                logger.warning("Oracle warm-up failed for %s: %s", mid, e)
+            market_oracles[mid] = market_oracle
+        else:
+            market_oracles[mid] = None
+
+    # Load oracle config (interval + thresholds) from global config file (optional)
+    _project_root = Path(__file__).resolve().parent.parent.parent
     _oracle_cfg_path = _project_root / "config" / "oracle.yaml"
-    oracle: PolymarketOracle | None = None
+    _oracle_interval = 30.0
     _oracle_lag_threshold = 10.0
     _oracle_deviation_threshold = 20.0
-    _oracle_data: dict[str, Any] = {}
     if _oracle_cfg_path.exists():
         with open(_oracle_cfg_path) as _f:
             _oracle_data = yaml.safe_load(_f).get("oracle", {})
-        _slug = os.environ.get("ORACLE_MARKET_SLUG", _oracle_data.get("market_slug", ""))
-        # Gemini fix: load thresholds from config
+        _oracle_interval = _oracle_data.get("update_interval_seconds", 30.0)
         _oracle_lag_threshold = _oracle_data.get("lag_threshold_seconds", 10.0)
         _oracle_deviation_threshold = _oracle_data.get("deviation_threshold_cents", 20.0)
-        if _slug:
-            oracle = PolymarketOracle(_slug)
-            logger.info("Oracle enabled: market_slug=%s, lag_threshold=%s, deviation_threshold=%s", 
-                       _slug, _oracle_lag_threshold, _oracle_deviation_threshold)
-            # Warm-up: fetch price once so check_lag() doesn't deadlock on first cycle
-            try:
-                await oracle.get_price()
-            except Exception as e:
-                logger.warning("Oracle warm-up fetch failed (will retry in cycle): %s", e)
-            # Store thresholds in contexts
-            for ctx in contexts.values():
-                ctx.oracle_lag_threshold = _oracle_lag_threshold
-                ctx.oracle_deviation_threshold = _oracle_deviation_threshold
-    else:
-        logger.info("No oracle config found at %s — oracle disabled", _oracle_cfg_path)
+    # Apply thresholds to contexts that have an oracle enabled
+    for mid, ctx in contexts.items():
+        if market_oracles.get(mid) is not None:
+            ctx.oracle_lag_threshold = _oracle_lag_threshold
+            ctx.oracle_deviation_threshold = _oracle_deviation_threshold
 
     tasks = []
     for ctx in contexts.values():
@@ -414,6 +433,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
         sanitizer = OrderSanitizer()
         order_mgr = OrderManager(api=api, cache=inventory_cache)
         phase_mgr = PhaseManager(config=ctx.config)
+        market_oracle = market_oracles[ctx.market_id]
 
         services = {
             "api": api,
@@ -425,26 +445,43 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
             "sanitizer": sanitizer,
             "order_mgr": order_mgr,
             "inventory_cache": inventory_cache,
-
-            "oracle": oracle,
             "phase_mgr": phase_mgr,
         }
-        tasks.append(asyncio.create_task(run_market_with_health(ctx, services, health_state, oracle=oracle)))
+        tasks.append(asyncio.create_task(
+            run_market_with_health(ctx, services, health_state, oracle=market_oracle),
+            name=f"market-{ctx.market_id}",
+        ))
     market_task_handles.extend(tasks)
 
-    # Background tasks: reconciler + health server
-    reconciler = AMMReconciler(api=api, inventory_cache=inventory_cache)
+    # Background tasks: reconciler + per-market oracle refresh loops + health server
+    reconciler = AMMReconciler(api=api, cache=inventory_cache)
     background_tasks.append(asyncio.create_task(
-        reconcile_loop(reconciler, contexts, 300.0)
+        reconcile_loop(reconciler, contexts, 300.0),
+        name="reconcile-loop",
     ))
-    if oracle is not None:
-        oracle_interval = _oracle_data.get("update_interval_seconds", 30.0)
-        background_tasks.append(asyncio.create_task(
-            _oracle_refresh_loop(oracle, oracle_interval, contexts)
-        ))
+    for mid, market_oracle in market_oracles.items():
+        if market_oracle is not None:
+            background_tasks.append(asyncio.create_task(
+                _oracle_refresh_loop(market_oracle, _oracle_interval, {mid: contexts[mid]}),
+                name=f"oracle-refresh-{mid}",
+            ))
     background_tasks.append(asyncio.create_task(
-        run_health_server(health_state)
+        run_health_server(health_state),
+        name="health-server",
     ))
+
+    # FIX 6: Guard background tasks — log failures and trigger shutdown
+    def _bg_task_guard(task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error("Background task %s died: %s", task.get_name(), exc)
+            for _ctx in contexts.values():
+                _ctx.shutdown_requested = True
+
+    for task in background_tasks:
+        task.add_done_callback(_bg_task_guard)
 
     try:
         results = await asyncio.gather(*tasks, return_exceptions=True)
