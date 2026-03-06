@@ -12,9 +12,9 @@ Tests:
 from __future__ import annotations
 
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-import pytest
+import fakeredis.aioredis
 
 from src.amm.config.loader import _coerce
 from src.amm.config.models import MarketConfig
@@ -24,7 +24,6 @@ from src.amm.lifecycle.reinvest import maybe_auto_reinvest
 from src.amm.lifecycle.winding_down import handle_winding_down
 from src.amm.models.inventory import Inventory
 from src.amm.models.market_context import MarketContext
-from src.amm.models.enums import Phase, DefenseLevel
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -125,6 +124,22 @@ class TestCashAllocation:
             written_inv: Inventory = call[0][1]
             assert written_inv.allocated_cash_cents == total_cash // 2
 
+    async def test_inventory_cache_round_trip_preserves_allocated_cash(self) -> None:
+        """InventoryCache must persist allocated_cash_cents across restart."""
+        from src.amm.cache.inventory_cache import InventoryCache
+
+        redis = fakeredis.aioredis.FakeRedis()
+        cache = InventoryCache(redis)
+        inventory = _inv(cash=900_000)
+        inventory.allocated_cash_cents = 300_000
+
+        await cache.set("mkt-1", inventory)
+        restored = await cache.get("mkt-1")
+
+        assert restored is not None
+        assert restored.allocated_cash_cents == 300_000
+        await redis.aclose()
+
 
 # ─── FIX 2: winding_down deterministic key ────────────────────────────────────
 
@@ -224,7 +239,7 @@ class TestReinvestIdempotencyKey:
 class TestOrderCacheIntegration:
     async def test_order_cache_loaded_on_restart(self) -> None:
         """load_from_cache() should populate active_orders from Redis."""
-        from src.amm.connector.order_manager import OrderManager, ActiveOrder
+        from src.amm.connector.order_manager import OrderManager
         from src.amm.cache.order_cache import OrderCache
 
         order_cache = AsyncMock(spec=OrderCache)

@@ -37,6 +37,7 @@ class InventoryCache:
             "yes_pending_sell": inventory.yes_pending_sell,
             "no_pending_sell": inventory.no_pending_sell,
             "frozen_balance_cents": inventory.frozen_balance_cents,
+            "allocated_cash_cents": inventory.allocated_cash_cents,
         })
 
     async def get(self, market_id: str) -> Inventory | None:
@@ -59,6 +60,7 @@ class InventoryCache:
             yes_pending_sell=_int("yes_pending_sell"),
             no_pending_sell=_int("no_pending_sell"),
             frozen_balance_cents=_int("frozen_balance_cents"),
+            allocated_cash_cents=_int("allocated_cash_cents"),
         )
 
     async def adjust(
