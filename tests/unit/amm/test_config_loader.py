@@ -1,5 +1,11 @@
 """Tests for AMM configuration models and YAML loader."""
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import AsyncMock
+
 from src.amm.config.models import GlobalConfig, MarketConfig
+from src.amm.config.loader import ConfigLoader
 
 
 class TestGlobalConfig:
@@ -31,3 +37,41 @@ class TestMarketConfig:
 
         cfg2 = MarketConfig(market_id="mkt-1", gamma_tier="LATE")
         assert cfg2.gamma == 0.8
+
+    async def test_load_market_coerces_optional_float_from_redis(
+        self, tmp_path: Path,
+    ) -> None:
+        yaml_path = tmp_path / "amm.yaml"
+        yaml_path.write_text("markets:\n  default: {}\n", encoding="utf-8")
+        redis = AsyncMock()
+        redis.hgetall.return_value = {b"remaining_hours_override": b"12.5"}
+
+        loader = ConfigLoader(redis_client=redis, yaml_path=yaml_path)
+
+        cfg = await loader.load_market("mkt-1")
+
+        assert cfg.remaining_hours_override == 12.5
+
+    async def test_load_market_coerces_bool_false_from_redis(self, tmp_path: Path) -> None:
+        yaml_path = tmp_path / "amm.yaml"
+        yaml_path.write_text("markets:\n  default: {}\n", encoding="utf-8")
+        redis = AsyncMock()
+        redis.hgetall.return_value = {b"auto_reinvest_enabled": b"false"}
+
+        loader = ConfigLoader(redis_client=redis, yaml_path=yaml_path)
+
+        cfg = await loader.load_market("mkt-1")
+
+        assert cfg.auto_reinvest_enabled is False
+
+    async def test_load_market_coerces_bool_true_from_redis(self, tmp_path: Path) -> None:
+        yaml_path = tmp_path / "amm.yaml"
+        yaml_path.write_text("markets:\n  default: {}\n", encoding="utf-8")
+        redis = AsyncMock()
+        redis.hgetall.return_value = {b"auto_reinvest_enabled": b"true"}
+
+        loader = ConfigLoader(redis_client=redis, yaml_path=yaml_path)
+
+        cfg = await loader.load_market("mkt-1")
+
+        assert cfg.auto_reinvest_enabled is True

@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import redis.asyncio as aioredis
+    from src.amm.cache.protocols import AsyncRedisLike
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ def _key(market_id: str) -> str:
 
 
 class OrderCache:
-    def __init__(self, redis: "aioredis.Redis") -> None:
+    def __init__(self, redis: "AsyncRedisLike") -> None:
         self._redis = redis
 
     async def set_order(self, market_id: str, order_id: str, order_data: dict) -> None:
