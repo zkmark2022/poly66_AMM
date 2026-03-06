@@ -236,6 +236,7 @@ class OrderManager:
                 price_cents=order_data["price_cents"],
                 remaining_quantity=order_data["remaining_quantity"],
             )
+        await self._sync_pending_sell(market_id)
 
     @staticmethod
     def _intent_fingerprint(intent: OrderIntent) -> str:

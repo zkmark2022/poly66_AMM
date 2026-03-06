@@ -274,24 +274,24 @@ async def quote_cycle(
 
     # Fetch live market status with TTL cache — avoids a REST call on every cycle
     now = time.monotonic()
+    _terminal_status: str | None = None
     if now - ctx.market_status_checked_at >= _MARKET_STATUS_TTL:
         try:
             status = await api.get_market_status(ctx.market_id)
-            ctx.last_known_market_active = status in {"active", "open"}
-            if status in {"resolved", "settled", "voided"}:
-                # Mark ctx as winding down BEFORE awaiting, so future cycles
-                # skip quoting even if handle_winding_down raises mid-way.
-                ctx.winding_down = True
-                ctx.market_status_checked_at = now
-                await handle_winding_down(ctx, api, status.upper(), order_mgr)
-                return
-            # Only advance TTL after confirmed non-terminal status
+            status_lower = status.lower()
+            ctx.last_known_market_active = status_lower in {"active", "open"}
             ctx.market_status_checked_at = now
+            if status_lower in {"resolved", "settled", "voided"}:
+                ctx.winding_down = True
+                _terminal_status = status_lower.upper()
         except Exception:
             logger.warning(
                 "Market status fetch failed for %s — using last-known active=%s",
                 ctx.market_id, ctx.last_known_market_active,
             )
+    if _terminal_status is not None:
+        await handle_winding_down(ctx, api, _terminal_status, order_mgr)
+        return
     market_is_active = ctx.last_known_market_active
 
     risk_defense = risk.evaluate(
