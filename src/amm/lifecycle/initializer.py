@@ -77,12 +77,15 @@ class AMMInitializer:
                 await self._inventory_cache.set(market_id, inventory)
 
                 # Step 7: Create MarketContext
+                anchor = market_config.anchor_price_cents
+                initial_inv_value = inventory.total_value_cents(anchor)
                 ctx = MarketContext(
                     market_id=market_id,
                     config=market_config,
                     inventory=inventory,
                     phase=Phase.EXPLORATION,
                     defense_level=DefenseLevel.NORMAL,
+                    initial_inventory_value_cents=initial_inv_value,
                 )
                 contexts[market_id] = ctx
                 logger.info("Market %s initialized", market_id)

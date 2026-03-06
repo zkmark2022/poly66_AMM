@@ -14,6 +14,8 @@ _SEVERITY: dict[DefenseLevel, int] = {
     DefenseLevel.ONE_SIDE: 2,
     DefenseLevel.KILL_SWITCH: 3,
 }
+# Public alias so callers can import without duplicating the mapping.
+DEFENSE_SEVERITY = _SEVERITY
 
 
 def _sev(level: DefenseLevel) -> int:

@@ -120,6 +120,7 @@ def _make_services_for_quote_cycle(ctx: MarketContext) -> dict:
 
     api = AsyncMock()
     api.get_orderbook.return_value = {"data": {"best_bid": 48, "best_ask": 52}}
+    api.get_market_status.return_value = "active"
 
     inventory_cache = AsyncMock()
     inventory_cache.get.return_value = ctx.inventory
