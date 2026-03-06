@@ -39,6 +39,7 @@ class AMMInitializer:
         logger.info("Global config loaded: %s", global_config.base_url)
 
         contexts: dict[str, MarketContext] = {}
+        n_markets = max(1, len(market_ids))
 
         for market_id in market_ids:
             logger.info("Initializing market %s", market_id)
@@ -72,6 +73,9 @@ class AMMInitializer:
                     balance_resp = await self._api.get_balance()
                     positions_resp = await self._api.get_positions(market_id)
                     inventory = self._build_inventory(balance_resp, positions_resp)
+
+                # Step 5.5: Allocate per-market cash share
+                inventory.allocated_cash_cents = inventory.cash_cents // n_markets
 
                 # Step 6: Persist only the final inventory
                 await self._inventory_cache.set(market_id, inventory)

@@ -1,7 +1,6 @@
 """Winding-down lifecycle helpers for market end handling."""
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from src.amm.connector.api_client import AMMApiClient
@@ -24,6 +23,8 @@ async def handle_winding_down(
     if market_status not in _FINAL_MARKET_STATES:
         return 0
 
+    ctx.winding_down = True
+
     if order_mgr is not None:
         await order_mgr.cancel_all(ctx.market_id)
 
@@ -32,8 +33,10 @@ async def handle_winding_down(
         ctx.shutdown_requested = True
         return 0
 
-    key = f"winding_down_{ctx.market_id}_{int(time.time())}"
-    await api.burn(ctx.market_id, quantity, key)
+    idempotency_key = (
+        f"winding_down_{ctx.market_id}_{quantity}_{ctx.winding_down_session_id}"
+    )
+    await api.burn(ctx.market_id, quantity, idempotency_key)
 
     ctx.inventory.yes_volume -= quantity
     ctx.inventory.no_volume -= quantity

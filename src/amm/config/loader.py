@@ -21,10 +21,22 @@ _CONFIG_DIR = Path(__file__).parent
 def _coerce(field_type: Any, val: str) -> Any:
     """Safely coerce Redis string values using dataclass field metadata."""
     origin = get_origin(field_type)
+    args = get_args(field_type)
+
+    if origin is tuple:
+        parts = [p.strip() for p in val.split(",")]
+        inner = args[0] if args else float
+        return tuple(inner(p) for p in parts if p)
+
+    if origin is list:
+        parts = [p.strip() for p in val.split(",")]
+        inner = args[0] if args else str
+        return [inner(p) for p in parts if p]
+
     if origin is not None:
-        args = [arg for arg in get_args(field_type) if arg is not type(None)]
-        if len(args) == 1:
-            field_type = args[0]
+        non_none_args = [arg for arg in args if arg is not type(None)]
+        if len(non_none_args) == 1:
+            field_type = non_none_args[0]
 
     if field_type is bool:
         return val.lower() in ("true", "1", "yes")

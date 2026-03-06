@@ -1,8 +1,6 @@
 """Auto-reinvest lifecycle helpers for AMM funds management."""
 from __future__ import annotations
 
-import time
-
 from src.amm.connector.api_client import AMMApiClient
 from src.amm.models.market_context import MarketContext
 from src.amm.strategy.models import OrderIntent
@@ -28,8 +26,8 @@ async def maybe_auto_reinvest(
     if quantity <= 0:
         return 0
 
-    key = f"reinvest_{ctx.market_id}_{int(time.time())}"
-    await api.mint(ctx.market_id, quantity, key)
+    idempotency_key = f"reinvest_{ctx.market_id}_{quantity}_{ctx.inventory.cash_cents}"
+    await api.mint(ctx.market_id, quantity, idempotency_key)
 
     ctx.inventory.cash_cents -= quantity * PAIR_COST_CENTS
     ctx.inventory.yes_volume += quantity
