@@ -1,4 +1,5 @@
 """AMM market runtime context."""
+import time
 from dataclasses import dataclass, field
 from src.amm.models.enums import DefenseLevel, Phase
 from src.amm.models.inventory import Inventory
@@ -19,3 +20,4 @@ class MarketContext:
     active_orders: dict = field(default_factory=dict)
     oracle_lag_threshold: float = 10.0
     oracle_deviation_threshold: float = 20.0
+    started_at: float = field(default_factory=time.monotonic)

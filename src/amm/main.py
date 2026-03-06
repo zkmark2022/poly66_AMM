@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 from pathlib import Path
+import time
 from typing import Any
 from typing import cast
 
@@ -31,10 +32,12 @@ from src.amm.risk.defense_stack import DefenseStack
 from src.amm.risk.sanitizer import OrderSanitizer
 from src.amm.strategy.as_engine import ASEngine
 from src.amm.strategy.gradient import GradientEngine
+from src.amm.strategy.phase_manager import PhaseManager
 from src.amm.strategy.pricing.anchor import AnchorPricing
 from src.amm.strategy.pricing.micro import MicroPricing
 from src.amm.strategy.pricing.posterior import PosteriorPricing
 from src.amm.oracle.polymarket import PolymarketOracle
+from src.amm.oracle.polymarket_oracle import OracleState
 from src.amm.strategy.pricing.three_layer import ThreeLayerPricing
 
 logger = logging.getLogger(__name__)
@@ -52,16 +55,23 @@ async def quote_cycle(
     order_mgr: OrderManager,
     inventory_cache: InventoryCache,
     oracle: PolymarketOracle | None = None,
+    phase_mgr: PhaseManager | None = None,
 ) -> None:
     """Single quote cycle for one market: Sync → Strategy → Risk → Execute."""
 
     # Step 1: Sync — poll new trades, refresh pending_sell
     recent_trades = await poller.poll(ctx.market_id)
+    ctx.trade_count += len(recent_trades)
     fresh = await inventory_cache.get(ctx.market_id)
     if fresh is not None:
         ctx.inventory = fresh
     if ctx.phase == Phase.STABILIZATION:
         await maybe_auto_reinvest(ctx, api)
+
+    # Step 1.5: Update phase based on trade count and elapsed time
+    if phase_mgr is not None:
+        elapsed_hours = (time.monotonic() - ctx.started_at) / 3600.0
+        ctx.phase = phase_mgr.update(trade_count=ctx.trade_count, elapsed_hours=elapsed_hours)
 
     # Step 2: Strategy — fetch live orderbook, then compute mid-price
     best_bid = ctx.config.anchor_price_cents - 5
@@ -102,15 +112,14 @@ async def quote_cycle(
 
     # Step 3: Risk — oracle check then defense evaluation
     oracle_passive = False
-    if oracle is not None:
-        # Gemini fix: load thresholds from config instead of hardcoding
-        lag_threshold = getattr(ctx, 'oracle_lag_threshold', 10.0)
-        deviation_threshold = getattr(ctx, 'oracle_deviation_threshold', 20.0)
-        
-        if oracle.check_lag(threshold_seconds=lag_threshold):
-            logger.warning("Oracle lag detected for %s — forcing ONE_SIDE", ctx.market_id)
-            oracle_passive = True
-        elif await oracle.check_deviation(mid, threshold=deviation_threshold):
+    if oracle is not None and ctx.config.oracle_slug:
+        try:
+            oracle.refresh()
+        except RuntimeError as e:
+            logger.warning("Oracle refresh failed for %s: %s", ctx.market_id, e)
+        oracle_state = oracle.evaluate(internal_price_cents=float(mid))
+        if oracle_state != OracleState.NORMAL:
+            ctx.defense_level = oracle_state.defense_level
             logger.warning(
                 "Oracle price deviation detected for %s (internal mid=%.1f) — forcing ONE_SIDE",
                 ctx.market_id, mid,
@@ -130,6 +139,18 @@ async def quote_cycle(
         logger.warning("KILL_SWITCH active for %s — cancelling all orders", ctx.market_id)
         await order_mgr.cancel_all(ctx.market_id)
         return
+
+    # Step 3.5: Apply WIDEN spread if defense level requires it
+    if defense == DefenseLevel.WIDEN:
+        widen_factor = ctx.config.widen_factor
+        mid_price = (ask + bid) // 2
+        ask = min(99, round(mid_price + (ask - mid_price) * widen_factor))
+        bid = max(1, round(mid_price - (mid_price - bid) * widen_factor))
+        ask = max(ask, bid + 1)  # ensure ask > bid
+
+    base_qty = max(1, ctx.config.initial_mint_quantity // (ctx.config.gradient_levels * 2))
+    ask_ladder = gradient.build_ask_ladder(ask, ctx.config, base_qty)
+    bid_ladder = gradient.build_bid_ladder(bid, ctx.config, base_qty)
 
     intents = sanitizer.sanitize(ask_ladder + bid_ladder, defense, ctx)
     intents = drop_buy_side_intents_when_cash_depleted(intents, ctx.inventory.cash_cents)
@@ -258,12 +279,14 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
             anchor=AnchorPricing(ctx.config.anchor_price_cents),
             micro=MicroPricing(),
             posterior=PosteriorPricing(),
+            config=ctx.config,
         )
         as_engine = ASEngine()
         gradient = GradientEngine()
         risk = DefenseStack(ctx.config)
         sanitizer = OrderSanitizer()
         order_mgr = OrderManager(api=api, cache=inventory_cache)
+        phase_mgr = PhaseManager(config=ctx.config)
 
         services = {
             "api": api,
@@ -275,6 +298,9 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
             "sanitizer": sanitizer,
             "order_mgr": order_mgr,
             "inventory_cache": inventory_cache,
+
+            "oracle": oracle,
+            "phase_mgr": phase_mgr,
         }
         tasks.append(asyncio.create_task(run_market_with_health(ctx, services, health_state, oracle=oracle)))
 
