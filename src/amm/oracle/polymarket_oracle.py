@@ -42,43 +42,18 @@ class PolymarketOracle:
     """External price oracle backed by the Polymarket CLI.
 
     Usage:
-        oracle.refresh()                        # fetch current price from CLI
+        await oracle.refresh()                  # fetch current price from CLI
         state = oracle.evaluate(internal_mid)  # returns OracleState
     """
 
-    def __init__(
-        self,
-        config: MarketConfig | str | None = None,
-        *,
-        market_slug: str | None = None,
-        oracle_stale_seconds: float = 3.0,
-        oracle_deviation_cents: float = 20.0,
-        oracle_lvr_window_seconds: float = 0.5,
-        oracle_lvr_threshold: float = 0.20,
-    ) -> None:
-        if config is not None and market_slug is not None:
-            raise TypeError("config and market_slug are mutually exclusive")
-        if isinstance(config, str):
-            market_slug = config
-            config = None
-        if config is None:
-            if market_slug is None:
-                raise TypeError("PolymarketOracle requires config or market_slug")
-            config = MarketConfig(
-                market_id=market_slug,
-                oracle_slug=market_slug,
-                oracle_stale_seconds=oracle_stale_seconds,
-                oracle_deviation_cents=oracle_deviation_cents,
-                oracle_lvr_window_seconds=oracle_lvr_window_seconds,
-                oracle_lvr_threshold=oracle_lvr_threshold,
-            )
-
+    def __init__(self, config: MarketConfig) -> None:
+        if not isinstance(config, MarketConfig):
+            raise TypeError("PolymarketOracle requires a MarketConfig")
         self._config = config
         # (monotonic_timestamp, price_cents)
         self._price_history: list[tuple[float, float]] = []
         self._last_refresh_time: float | None = None
         self.last_price: float | None = None
-        self.last_update: float | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -91,7 +66,6 @@ class PolymarketOracle:
         self._last_refresh_time = now
         self._price_history.append((now, price))
         self.last_price = price
-        self.last_update = now
         # Prune history older than 60 seconds (keep memory bounded)
         cutoff = now - 60.0
         self._price_history = [(t, p) for t, p in self._price_history if t >= cutoff]
@@ -118,12 +92,6 @@ class PolymarketOracle:
         if self._last_refresh_time is None:
             return True
         return (time.monotonic() - self._last_refresh_time) > self._config.oracle_stale_seconds
-
-    def check_lag(self, threshold_seconds: float = 3.0) -> bool:
-        """Compatibility shim for older callers using the previous lag API."""
-        if self.last_update is None:
-            return True
-        return (time.monotonic() - self.last_update) > threshold_seconds
 
     def check_deviation(self, internal_price_cents: float) -> bool:
         """Return True if |oracle_price - internal_price| exceeds deviation threshold."""
@@ -180,8 +148,12 @@ class PolymarketOracle:
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
-            returncode = getattr(proc, "returncode", 0)
-            if isinstance(returncode, int) and returncode != 0:
+            returncode = proc.returncode
+            if returncode is None:
+                raise RuntimeError(
+                    f"polymarket CLI did not exit cleanly for {self._config.oracle_slug}"
+                )
+            if returncode != 0:
                 raise RuntimeError(stderr.decode() if stderr else "unknown polymarket CLI error")
             data: dict[str, object] = json.loads(stdout.decode())
             outcome_prices = data.get("outcomePrices")

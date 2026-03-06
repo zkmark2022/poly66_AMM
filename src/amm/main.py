@@ -135,30 +135,7 @@ async def _evaluate_oracle_state(
         if inspect.isawaitable(result):
             return cast(OracleState, await result)
         return cast(OracleState, result)
-
-    check_stale = getattr(oracle, "check_stale", None)
-    if callable(check_stale):
-        if check_stale():
-            return OracleState.STALE
-        check_lvr = getattr(oracle, "check_lvr", None)
-        if callable(check_lvr) and check_lvr():
-            return OracleState.LVR
-        deviation = oracle.check_deviation(internal_price_cents)
-    else:
-        legacy_oracle = cast(Any, oracle)
-        if legacy_oracle.check_lag(threshold_seconds=ctx.oracle_lag_threshold):
-            return OracleState.STALE
-        deviation = legacy_oracle.check_deviation(
-            internal_price_cents,
-            threshold=ctx.oracle_deviation_threshold,
-        )
-
-    if inspect.isawaitable(deviation):
-        deviation = await deviation
-    if deviation:
-        return OracleState.DEVIATION
-
-    return OracleState.NORMAL
+    raise TypeError("oracle must implement evaluate(internal_price_cents=...)")
 
 
 async def quote_cycle(

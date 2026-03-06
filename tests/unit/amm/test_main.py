@@ -21,6 +21,7 @@ from src.amm.main import (
 )
 from src.amm.models.inventory import Inventory
 from src.amm.models.market_context import MarketContext
+from src.amm.oracle.polymarket_oracle import OracleState
 
 
 def _make_context(market_id: str = "mkt-1") -> MarketContext:
@@ -528,19 +529,12 @@ class TestAMMMain:
 
         assert "Oracle background refresh failed: oracle unavailable" in caplog.text
 
-    async def test_evaluate_oracle_state_supports_legacy_async_oracle(self) -> None:
+    async def test_evaluate_oracle_state_uses_current_oracle_interface(self) -> None:
         ctx = _make_context()
+        oracle = MagicMock()
+        oracle.evaluate.return_value = OracleState.NORMAL
 
-        class LegacyOracle:
-            def check_lag(self, threshold_seconds: float = 3.0) -> bool:
-                assert threshold_seconds == ctx.oracle_lag_threshold
-                return False
+        state = await _evaluate_oracle_state(oracle, ctx, internal_price_cents=51.0)
 
-            async def check_deviation(self, internal_price: float, threshold: float = 20.0) -> bool:
-                assert internal_price == 51.0
-                assert threshold == ctx.oracle_deviation_threshold
-                return False
-
-        state = await _evaluate_oracle_state(LegacyOracle(), ctx, internal_price_cents=51.0)
-
-        assert state.value == "NORMAL"
+        oracle.evaluate.assert_called_once_with(internal_price_cents=51.0)
+        assert state is OracleState.NORMAL

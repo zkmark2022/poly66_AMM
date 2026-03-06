@@ -25,31 +25,10 @@ def _make_config(**kwargs: object) -> MarketConfig:
 
 
 class TestPolymarketOracleRefresh:
-    @pytest.mark.asyncio
-    async def test_refresh_supports_legacy_positional_slug_constructor(self) -> None:
-        """Legacy callers passing the slug positionally should still work."""
-        oracle = PolymarketOracle("will-btc-exceed-100000")
-
-        mock_proc = MagicMock()
-        mock_proc.communicate = AsyncMock(return_value=(
-            json.dumps({"outcomePrices": ["0.65", "0.35"]}).encode(),
-            b"",
-        ))
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
-            await oracle.refresh()
-
-        mock_exec.assert_called_once_with(
-            "/opt/homebrew/bin/polymarket",
-            "-o",
-            "json",
-            "markets",
-            "get",
-            "will-btc-exceed-100000",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        assert oracle.get_yes_price() == pytest.approx(65.0)
+    def test_constructor_requires_market_config(self) -> None:
+        """Only the MarketConfig constructor is supported."""
+        with pytest.raises(TypeError):
+            PolymarketOracle("will-btc-exceed-100000")
 
     @pytest.mark.asyncio
     async def test_refresh_is_awaitable_for_config_constructor(self) -> None:
@@ -57,6 +36,7 @@ class TestPolymarketOracleRefresh:
         oracle = PolymarketOracle(_make_config())
 
         mock_proc = MagicMock()
+        mock_proc.returncode = 0
         mock_proc.communicate = AsyncMock(return_value=(
             json.dumps({"outcomePrices": ["0.52", "0.48"]}).encode(),
             b"",
@@ -67,37 +47,10 @@ class TestPolymarketOracleRefresh:
 
         assert oracle.get_yes_price() == pytest.approx(52.0)
 
-    @pytest.mark.asyncio
-    async def test_refresh_supports_explicit_threshold_constructor(self) -> None:
-        """The unified oracle should also accept explicit slug + threshold args."""
-        oracle = PolymarketOracle(
-            market_slug="will-btc-exceed-100000",
-            oracle_stale_seconds=7.0,
-            oracle_deviation_cents=12.0,
-            oracle_lvr_window_seconds=1.5,
-            oracle_lvr_threshold=0.1,
-        )
-
-        mock_proc = MagicMock()
-        mock_proc.communicate = AsyncMock(return_value=(
-            json.dumps({"outcomePrices": ["0.65", "0.35"]}).encode(),
-            b"",
-        ))
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
-            await oracle.refresh()
-
-        mock_exec.assert_called_once_with(
-            "/opt/homebrew/bin/polymarket",
-            "-o",
-            "json",
-            "markets",
-            "get",
-            "will-btc-exceed-100000",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        assert oracle.get_yes_price() == pytest.approx(65.0)
+    def test_constructor_rejects_legacy_market_slug_keyword(self) -> None:
+        """Explicit slug-only construction was removed with the legacy oracle path."""
+        with pytest.raises(TypeError):
+            PolymarketOracle(market_slug="will-btc-exceed-100000")
 
     @pytest.mark.asyncio
     async def test_refresh_raises_when_outcome_prices_missing(self) -> None:
@@ -138,10 +91,21 @@ class TestPolymarketOracleRefresh:
         with pytest.raises(RuntimeError, match="No price data"):
             oracle.get_yes_price()
 
-    def test_constructor_rejects_conflicting_config_and_market_slug(self) -> None:
-        """Passing both config and market_slug should fail explicitly."""
-        with pytest.raises(TypeError, match="mutually exclusive"):
-            PolymarketOracle(_make_config(), market_slug="other-market")
+    @pytest.mark.asyncio
+    async def test_refresh_rejects_missing_returncode_after_subprocess_completion(self) -> None:
+        """A subprocess without a resolved return code should be treated as failed."""
+        oracle = PolymarketOracle(_make_config())
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+        mock_proc.communicate = AsyncMock(return_value=(
+            json.dumps({"outcomePrices": ["0.65", "0.35"]}).encode(),
+            b"",
+        ))
+
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(RuntimeError, match="did not exit cleanly"):
+                await oracle.refresh()
 
 
 class TestPolymarketOracleCheckDeviation:
