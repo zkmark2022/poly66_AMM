@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from src.amm.models.inventory import Inventory
 
 if TYPE_CHECKING:
-    import redis.asyncio as aioredis
+    from src.amm.cache.protocols import AsyncRedisLike
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ def _intent_key(market_id: str, fingerprint: str) -> str:
 
 
 class InventoryCache:
-    def __init__(self, redis: "aioredis.Redis") -> None:
+    def __init__(self, redis: "AsyncRedisLike") -> None:
         self._redis = redis
 
     async def set(self, market_id: str, inventory: Inventory) -> None:

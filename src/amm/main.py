@@ -1,24 +1,29 @@
 """AMM bot entry point — quote cycle orchestrator."""
 import asyncio
 import logging
+import os
 import signal
 from pathlib import Path
 from typing import Any
+from typing import cast
 
 import httpx
 
 from src.amm.cache.inventory_cache import InventoryCache
+from src.amm.cache.protocols import AsyncRedisLike
 from src.amm.cache.redis_client import create_redis_client
 from src.amm.config.loader import ConfigLoader
 from src.amm.connector.api_client import AMMApiClient
 from src.amm.connector.auth import TokenManager
 from src.amm.connector.order_manager import OrderManager
 from src.amm.connector.trade_poller import TradePoller
+from src.amm.lifecycle.health import HealthState, run_health_server
 from src.amm.lifecycle.initializer import AMMInitializer
 from src.amm.lifecycle.reinvest import (
     drop_buy_side_intents_when_cash_depleted,
     maybe_auto_reinvest,
 )
+from src.amm.lifecycle.reconciler import AMMReconciler
 from src.amm.lifecycle.shutdown import GracefulShutdown
 from src.amm.models.enums import DefenseLevel, Phase
 from src.amm.models.market_context import MarketContext
@@ -147,12 +152,35 @@ async def run_market(
         await asyncio.sleep(ctx.config.quote_interval_seconds)
 
 
+async def run_market_with_health(
+    ctx: MarketContext,
+    services: dict[str, Any],
+    health_state: HealthState,
+    oracle: PolymarketOracle | None = None,
+) -> None:
+    try:
+        await run_market(ctx, services, oracle=oracle)
+    finally:
+        health_state.markets_active = max(0, health_state.markets_active - 1)
+
+
+async def reconcile_loop(
+    reconciler: AMMReconciler,
+    contexts: dict[str, MarketContext],
+    interval_seconds: float,
+) -> None:
+    market_ids = list(contexts)
+    while not any(ctx.shutdown_requested for ctx in contexts.values()):
+        await reconciler.reconcile(market_ids)
+        await asyncio.sleep(interval_seconds)
+
+
 async def amm_main(market_ids: list[str] | None = None) -> None:
     """AMM service entry point."""
     logging.basicConfig(level=logging.INFO)
 
-    import os
     import yaml
+
     base_url = os.environ.get("AMM_BASE_URL", "http://localhost:8000/api/v1")
     redis_url = os.environ.get("AMM_REDIS_URL", "redis://localhost:6379/0")
     username = os.environ.get("AMM_USERNAME", "amm_market_maker")
@@ -160,11 +188,14 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     market_ids = market_ids or os.environ.get("AMM_MARKETS", "mkt-1").split(",")
 
     redis_client = create_redis_client(redis_url)
+    typed_redis_client = cast(AsyncRedisLike, redis_client)
     http_client = httpx.AsyncClient(base_url=base_url, timeout=10.0)
     token_mgr = TokenManager(base_url, username, password, http_client)
     api = AMMApiClient(base_url, token_mgr, http_client=http_client)
-    inventory_cache = InventoryCache(redis_client)
-    config_loader = ConfigLoader(redis_client=redis_client)
+    inventory_cache = InventoryCache(typed_redis_client)
+    config_loader = ConfigLoader(redis_client=typed_redis_client)
+    await config_loader.load_global()
+    health_state = HealthState()
 
     # Initialize
     initializer = AMMInitializer(
@@ -174,6 +205,8 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
         inventory_cache=inventory_cache,
     )
     contexts = await initializer.initialize(market_ids)
+    health_state.markets_active = len(contexts)
+    health_state.ready = True
 
     # Shutdown handler
     shutdown = GracefulShutdown(api=api)
@@ -243,12 +276,31 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
             "order_mgr": order_mgr,
             "inventory_cache": inventory_cache,
         }
-        tasks.append(asyncio.create_task(run_market(ctx, services, oracle=oracle)))
+        tasks.append(asyncio.create_task(run_market_with_health(ctx, services, health_state, oracle=oracle)))
+
+    # Background tasks: reconciler + health server
+    reconciler = AMMReconciler(api=api, cache=inventory_cache)
+    background_tasks: list[asyncio.Task] = []
+
+    background_tasks.append(asyncio.create_task(
+        reconcile_loop(reconciler, contexts, 300.0)
+    ))
+    background_tasks.append(asyncio.create_task(
+        run_health_server(health_state)
+    ))
 
     try:
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error("Market task %d failed: %s", i, result, exc_info=result)
     finally:
+        health_state.ready = False
+        for task in background_tasks:
+            task.cancel()
+        await asyncio.gather(*background_tasks, return_exceptions=True)
         await shutdown.execute(contexts)
+        await http_client.aclose()
         await redis_client.aclose()
 
 
