@@ -1,6 +1,7 @@
 """Tests for P0 critical bug fixes (2026-03-05 code review)."""
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -23,7 +24,7 @@ from src.amm.strategy.as_engine import ASEngine
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _make_config(**kwargs) -> MarketConfig:
-    defaults = dict(market_id="mkt-test", oracle_slug="test-slug")
+    defaults: dict[str, Any] = {"market_id": "mkt-test", "oracle_slug": "test-slug"}
     defaults.update(kwargs)
     return MarketConfig(**defaults)
 

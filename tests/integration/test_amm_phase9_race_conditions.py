@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 from unittest.mock import AsyncMock
 
 import httpx
@@ -9,6 +10,7 @@ import fakeredis.aioredis
 import respx
 
 from src.amm.cache.inventory_cache import InventoryCache
+from src.amm.cache.protocols import AsyncRedisLike
 from src.amm.connector.api_client import AMMApiClient
 from src.amm.connector.auth import TokenManager
 from src.amm.connector.order_manager import OrderManager
@@ -57,7 +59,7 @@ class TestPhase9RaceConditions:
         api.place_order.return_value = {"data": {"order_id": "ord-1"}}
 
         redis = fakeredis.aioredis.FakeRedis()
-        cache = InventoryCache(redis=redis)
+        cache = InventoryCache(redis=cast(AsyncRedisLike, redis))
 
         mgr_before_crash = OrderManager(api=api, cache=cache)
         intent = OrderIntent(
