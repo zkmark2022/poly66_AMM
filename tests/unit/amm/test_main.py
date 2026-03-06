@@ -538,3 +538,41 @@ class TestAMMMain:
 
         oracle.evaluate.assert_called_once_with(internal_price_cents=51.0)
         assert state is OracleState.NORMAL
+
+    async def test_evaluate_oracle_state_fallback_preserves_lvr_check(self) -> None:
+        ctx = _make_context()
+
+        class PartialOracle:
+            def check_stale(self) -> bool:
+                return False
+
+            def check_lvr(self) -> bool:
+                return True
+
+            def check_deviation(self, internal_price_cents: float, threshold: float | None = None) -> bool:
+                raise AssertionError("deviation should not run once LVR is detected")
+
+        state = await _evaluate_oracle_state(PartialOracle(), ctx, internal_price_cents=51.0)
+
+        assert state is OracleState.LVR
+
+    async def test_evaluate_oracle_state_fallback_forwards_deviation_threshold(self) -> None:
+        ctx = _make_context()
+        ctx.oracle_deviation_threshold = 17.0
+        observed_calls: list[tuple[float, float | None]] = []
+
+        class PartialOracle:
+            def check_stale(self) -> bool:
+                return False
+
+            def check_lvr(self) -> bool:
+                return False
+
+            def check_deviation(self, internal_price_cents: float, threshold: float | None = None) -> bool:
+                observed_calls.append((internal_price_cents, threshold))
+                return threshold == 17.0 and internal_price_cents == 51.0
+
+        state = await _evaluate_oracle_state(PartialOracle(), ctx, internal_price_cents=51.0)
+
+        assert observed_calls == [(51.0, 17.0)]
+        assert state is OracleState.DEVIATION
