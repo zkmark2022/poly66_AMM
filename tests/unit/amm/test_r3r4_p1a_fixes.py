@@ -615,7 +615,7 @@ class TestP1InventoryLock:
         lock_acquired_while_reconciling = False
         original_reconcile_called = False
 
-        async def fake_reconcile(market_ids: list[str], n_markets_total: int = 0) -> dict:
+        async def fake_reconcile(market_ids: list[str], n_markets_total: int = 0, balance_resp: dict | None = None) -> dict:
             nonlocal lock_acquired_while_reconciling, original_reconcile_called
             original_reconcile_called = True
             # The lock should be acquired (locked) while reconcile runs
@@ -624,8 +624,12 @@ class TestP1InventoryLock:
             ctx.shutdown_requested = True
             return {}
 
+        async def fake_fetch_balance() -> dict:
+            return {"data": {"balance_cents": 100_000, "frozen_balance_cents": 0}}
+
         fake_reconciler = MagicMock()
         fake_reconciler.reconcile = fake_reconcile
+        fake_reconciler.fetch_balance = fake_fetch_balance
 
         await reconcile_loop(fake_reconciler, {"mkt-1": ctx}, interval_seconds=0.001)
 

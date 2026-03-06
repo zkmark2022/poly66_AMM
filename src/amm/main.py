@@ -150,7 +150,7 @@ async def _evaluate_oracle_state(
         result = evaluate(internal_price_cents=internal_price_cents)
         if inspect.isawaitable(result):
             return await result
-        return result
+        return result  # type: ignore[return-value]
 
     check_stale = getattr(oracle, "check_stale", None)
     if callable(check_stale):
@@ -278,10 +278,15 @@ async def quote_cycle(
         try:
             status = await api.get_market_status(ctx.market_id)
             ctx.last_known_market_active = status in {"active", "open"}
-            ctx.market_status_checked_at = now
             if status in {"resolved", "settled", "voided"}:
+                # Mark ctx as winding down BEFORE awaiting, so future cycles
+                # skip quoting even if handle_winding_down raises mid-way.
+                ctx.winding_down = True
+                ctx.market_status_checked_at = now
                 await handle_winding_down(ctx, api, status.upper(), order_mgr)
                 return
+            # Only advance TTL after confirmed non-terminal status
+            ctx.market_status_checked_at = now
         except Exception:
             logger.warning(
                 "Market status fetch failed for %s — using last-known active=%s",
@@ -400,10 +405,15 @@ async def reconcile_loop(
     interval_seconds: float,
 ) -> None:
     market_ids = list(contexts)
+    n = len(market_ids)
     while not any(ctx.shutdown_requested for ctx in contexts.values()):
+        # Fetch balance once per pass to ensure consistent allocation across markets.
+        balance_resp = await reconciler.fetch_balance()
         for market_id in market_ids:
             async with contexts[market_id].inventory_lock:
-                await reconciler.reconcile([market_id], n_markets_total=len(market_ids))
+                await reconciler.reconcile(
+                    [market_id], n_markets_total=n, balance_resp=balance_resp
+                )
         await asyncio.sleep(interval_seconds)
 
 
@@ -506,7 +516,13 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
         risk = DefenseStack(ctx.config)
         sanitizer = OrderSanitizer()
         order_mgr = OrderManager(api=api, cache=inventory_cache, order_cache=order_cache)
-        await order_mgr.load_from_cache(ctx.market_id)
+        try:
+            await order_mgr.load_from_cache(ctx.market_id)
+        except Exception as _load_err:
+            logger.warning(
+                "Could not restore orders from cache for %s (starting fresh): %s",
+                ctx.market_id, _load_err,
+            )
         market_order_managers[ctx.market_id] = order_mgr
         phase_mgr = PhaseManager(config=ctx.config)
         market_oracle = market_oracles[ctx.market_id]

@@ -22,15 +22,28 @@ class AMMReconciler:
         self._api = api
         self._cache = inventory_cache
 
-    async def reconcile(self, market_ids: list[str], n_markets_total: int = 0) -> dict[str, dict]:
+    async def fetch_balance(self) -> dict:
+        """Fetch current balance snapshot from API. Call once per reconcile pass."""
+        return await self._api.get_balance()
+
+    async def reconcile(
+        self,
+        market_ids: list[str],
+        n_markets_total: int = 0,
+        balance_resp: dict | None = None,
+    ) -> dict[str, dict]:
         """Full-state reconciliation for all markets.
 
         Fetches DB truth via API and compares with Redis cache.
         Updates Redis if drift is detected.
 
         Returns dict[market_id → {"drifted": bool, "fields": list[str]}].
+
+        Pass ``balance_resp`` (from a prior ``fetch_balance()`` call) to avoid
+        redundant API calls when reconciling multiple markets in one pass.
         """
-        balance_resp = await self._api.get_balance()
+        if balance_resp is None:
+            balance_resp = await self._api.get_balance()
         bal = balance_resp.get("data", {})
         cash_cents = int(bal.get("balance_cents", 0))
         frozen_cents = int(bal.get("frozen_balance_cents", 0))
