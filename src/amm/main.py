@@ -94,7 +94,7 @@ async def quote_cycle(
 
     tau = ctx.config.remaining_hours_override if ctx.config.remaining_hours_override is not None else 24.0
     sigma = as_engine.bernoulli_sigma(mid)
-    gamma = ctx.config.gamma
+    gamma = as_engine.get_gamma_for_age(ctx.config)
     kappa = ctx.config.kappa
 
     ask, bid = as_engine.compute_quotes(

@@ -1,8 +1,14 @@
 """Avellaneda-Stoikov pricing model adapted for prediction markets."""
+from __future__ import annotations
+
 import math
+from typing import TYPE_CHECKING
 
 from src.amm.config.models import GAMMA_TIERS
 from src.amm.utils.integer_math import clamp
+
+if TYPE_CHECKING:
+    from src.amm.config.models import MarketConfig
 
 
 class ASEngine:
@@ -30,6 +36,22 @@ class ASEngine:
 
     def get_gamma(self, tier: str) -> float:
         return GAMMA_TIERS.get(tier, 0.3)
+
+    def get_gamma_for_age(self, config: MarketConfig) -> float:
+        """Return gamma based on market age (days since creation)."""
+        from datetime import date as _date
+        if config.market_creation_date is None:
+            return config.gamma  # fallback to static config
+        created = _date.fromisoformat(config.market_creation_date)
+        age_days = (_date.today() - created).days
+        if age_days <= 3:
+            return GAMMA_TIERS["EARLY"]
+        elif age_days <= 14:
+            return GAMMA_TIERS["MID"]
+        elif age_days <= 30:
+            return GAMMA_TIERS["LATE"]
+        else:
+            return GAMMA_TIERS["MATURE"]
 
     def compute_quotes(
         self, mid_price: int, inventory_skew: float,

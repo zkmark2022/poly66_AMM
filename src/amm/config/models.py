@@ -67,6 +67,9 @@ class MarketConfig:
     remaining_hours_override: float | None = None
     quote_interval_seconds: float = 2.0
 
+    # Market lifecycle
+    market_creation_date: str | None = None  # ISO format: "2026-01-15"
+
     # Oracle (Phase 8)
     oracle_slug: str = ""
     oracle_stale_seconds: float = 3.0
