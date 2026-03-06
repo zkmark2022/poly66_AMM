@@ -191,6 +191,8 @@ async def quote_cycle(
     phase_mgr: PhaseManager | None = None,
 ) -> None:
     """Single quote cycle for one market: Sync → Strategy → Risk → Execute."""
+    if ctx.winding_down:
+        return
 
     # Step 1: Sync — poll new trades, refresh pending_sell
     recent_trades = await poller.poll(ctx.market_id)
@@ -271,10 +273,6 @@ async def quote_cycle(
                 "Oracle state %s for %s (internal mid=%.1f)",
                 oracle_state, ctx.market_id, mid,
             )
-
-    # Short-circuit: already winding down (set in a prior cycle)
-    if ctx.winding_down:
-        return
 
     # Fetch live market status with TTL cache — avoids a REST call on every cycle
     now = time.monotonic()

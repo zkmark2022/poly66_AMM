@@ -36,7 +36,12 @@ async def handle_winding_down(
     idempotency_key = (
         f"winding_down_{ctx.market_id}_{quantity}_{ctx.winding_down_session_id}"
     )
-    await api.burn(ctx.market_id, quantity, idempotency_key)
+    try:
+        await api.burn(ctx.market_id, quantity, idempotency_key)
+    finally:
+        # Always mark shutdown so the bot doesn't stay alive doing nothing.
+        # burn() is idempotent via idempotency_key — safe to retry externally.
+        ctx.shutdown_requested = True
 
     ctx.inventory.yes_volume -= quantity
     ctx.inventory.no_volume -= quantity
@@ -45,5 +50,4 @@ async def handle_winding_down(
     ctx.inventory.no_cost_sum_cents = max(0, ctx.inventory.no_cost_sum_cents - quantity * 50)
     ctx.inventory.yes_pending_sell = 0
     ctx.inventory.no_pending_sell = 0
-    ctx.shutdown_requested = True
     return quantity

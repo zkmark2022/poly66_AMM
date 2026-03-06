@@ -28,4 +28,4 @@ class MarketContext:
     started_at: float = field(default_factory=time.monotonic)
     winding_down: bool = False
     winding_down_session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    inventory_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    inventory_lock: asyncio.Lock = field(default_factory=asyncio.Lock, compare=False, repr=False)
