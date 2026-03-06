@@ -498,10 +498,9 @@ class TestP1OrderCacheInjection:
 class TestP1OneSideDefenseAtZeroSkew:
     """P1-3: ONE_SIDE must suppress NO side even when inventory_skew == 0."""
 
-    def test_one_side_suppresses_no_when_skew_is_exactly_zero(self) -> None:
-        """skew=0 (yes==no) → ONE_SIDE must only allow YES intents (conservative)."""
+    def test_one_side_allows_both_when_skew_is_exactly_zero(self) -> None:
+        """skew=0 (balanced) → ONE_SIDE allows both sides, no artificial YES bias."""
         ctx = _make_ctx()
-        # Ensure skew is exactly 0
         assert ctx.inventory.yes_volume == ctx.inventory.no_volume
         assert ctx.inventory.inventory_skew == 0.0
 
@@ -513,10 +512,8 @@ class TestP1OneSideDefenseAtZeroSkew:
         result = sanitizer.sanitize(intents, DefenseLevel.ONE_SIDE, ctx)
         sides = {i.side for i in result}
 
-        assert "NO" not in sides, (
-            "ONE_SIDE with skew=0 must suppress NO side (conservative behavior)"
-        )
-        assert "YES" in sides, "ONE_SIDE with skew=0 must still allow YES side"
+        assert "YES" in sides, "ONE_SIDE with skew=0 must allow YES"
+        assert "NO" in sides, "ONE_SIDE with skew=0 must allow NO (no artificial bias)"
 
     def test_one_side_suppresses_no_when_skew_is_near_zero(self) -> None:
         """abs(skew) < 0.05 → ONE_SIDE must suppress NO side."""

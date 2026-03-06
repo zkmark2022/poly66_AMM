@@ -195,10 +195,10 @@ async def quote_cycle(
     # Step 1: Sync — poll new trades, refresh pending_sell
     recent_trades = await poller.poll(ctx.market_id)
     ctx.trade_count += len(recent_trades)
-    fresh = await inventory_cache.get(ctx.market_id)
-    # Hold inventory_lock only while writing to ctx.inventory to prevent
-    # reconciler from overwriting a stale value mid-apply
+    # Hold inventory_lock around both the Redis read and the ctx write,
+    # so reconcile_loop cannot overwrite ctx.inventory between our read and assign.
     async with ctx.inventory_lock:
+        fresh = await inventory_cache.get(ctx.market_id)
         if fresh is not None:
             ctx.inventory = fresh
     if ctx.phase == Phase.STABILIZATION:
@@ -530,7 +530,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     market_task_handles.extend(tasks)
 
     # Background tasks: reconciler + per-market oracle refresh loops + health server
-    reconciler = AMMReconciler(api=api, cache=inventory_cache)
+    reconciler = AMMReconciler(api=api, inventory_cache=inventory_cache)
     background_tasks.append(asyncio.create_task(
         reconcile_loop(reconciler, contexts, global_cfg.reconcile_interval_seconds),
         name="reconcile-loop",
