@@ -43,6 +43,13 @@ from src.amm.strategy.pricing.three_layer import ThreeLayerPricing
 logger = logging.getLogger(__name__)
 SHUTDOWN_TIMEOUT_SECONDS = 30.0
 
+_DEFENSE_SEVERITY: dict[DefenseLevel, int] = {
+    DefenseLevel.NORMAL: 0,
+    DefenseLevel.WIDEN: 1,
+    DefenseLevel.ONE_SIDE: 2,
+    DefenseLevel.KILL_SWITCH: 3,
+}
+
 
 def _build_signal_handler(
     contexts: dict[str, MarketContext],
@@ -235,13 +242,6 @@ async def quote_cycle(
     ctx.daily_pnl_cents = ctx.inventory.total_value_cents(mid) - ctx.initial_inventory_value_cents
 
     # Step 3: Risk — oracle check then defense evaluation
-    _SEVERITY: dict[DefenseLevel, int] = {
-        DefenseLevel.NORMAL: 0,
-        DefenseLevel.WIDEN: 1,
-        DefenseLevel.ONE_SIDE: 2,
-        DefenseLevel.KILL_SWITCH: 3,
-    }
-
     oracle_defense = DefenseLevel.NORMAL
     if oracle is not None and ctx.config.oracle_slug:
         oracle_state = await _evaluate_oracle_state(
@@ -269,7 +269,7 @@ async def quote_cycle(
         daily_pnl=ctx.daily_pnl_cents,
         market_active=market_is_active,
     )
-    defense = max(risk_defense, oracle_defense, key=lambda d: _SEVERITY[d])
+    defense = max(risk_defense, oracle_defense, key=lambda d: _DEFENSE_SEVERITY[d])
     ctx.defense_level = defense
 
     if not defense.is_quoting_active:

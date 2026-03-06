@@ -155,7 +155,7 @@ class AMMApiClient:
         return await self._request("GET", f"/markets/{_sanitize_id(market_id)}/orderbook")
 
     async def get_market_status(self, market_id: str) -> str:
-        resp = await self._request("GET", f"/markets/{_sanitize_id(market_id)}")
+        resp = await self.get_market(market_id)
         data = resp.get("data", resp)
         return str(data.get("status", "unknown")).lower()
 
