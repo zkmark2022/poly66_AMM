@@ -18,6 +18,7 @@ class MarketContext:
     initial_inventory_value_cents: int = 0
     trade_count: int = 0
     shutdown_requested: bool = False
+    last_known_market_active: bool = True
     active_orders: dict = field(default_factory=dict)
     oracle_lag_threshold: float = 10.0
     oracle_deviation_threshold: float = 20.0

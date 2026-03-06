@@ -257,12 +257,16 @@ async def quote_cycle(
             )
 
     # Fetch live market status — do not hardcode market_active=True
-    market_is_active = True
     try:
         status = await api.get_market_status(ctx.market_id)
-        market_is_active = (status == "active")
+        market_is_active = status in {"active", "open"}
+        ctx.last_known_market_active = market_is_active
     except Exception:
-        logger.warning("Market status fetch failed for %s — assuming active", ctx.market_id)
+        market_is_active = ctx.last_known_market_active
+        logger.warning(
+            "Market status fetch failed for %s — using last-known active=%s",
+            ctx.market_id, market_is_active,
+        )
 
     risk_defense = risk.evaluate(
         inventory_skew=ctx.inventory.inventory_skew,
@@ -398,14 +402,23 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
         else:
             market_oracles[mid] = None
 
-    # Load oracle refresh interval from global config file (optional)
+    # Load oracle config (interval + thresholds) from global config file (optional)
     _project_root = Path(__file__).resolve().parent.parent.parent
     _oracle_cfg_path = _project_root / "config" / "oracle.yaml"
     _oracle_interval = 30.0
+    _oracle_lag_threshold = 10.0
+    _oracle_deviation_threshold = 20.0
     if _oracle_cfg_path.exists():
         with open(_oracle_cfg_path) as _f:
             _oracle_data = yaml.safe_load(_f).get("oracle", {})
         _oracle_interval = _oracle_data.get("update_interval_seconds", 30.0)
+        _oracle_lag_threshold = _oracle_data.get("lag_threshold_seconds", 10.0)
+        _oracle_deviation_threshold = _oracle_data.get("deviation_threshold_cents", 20.0)
+    # Apply thresholds to contexts that have an oracle enabled
+    for mid, ctx in contexts.items():
+        if market_oracles.get(mid) is not None:
+            ctx.oracle_lag_threshold = _oracle_lag_threshold
+            ctx.oracle_deviation_threshold = _oracle_deviation_threshold
 
     tasks = []
     for ctx in contexts.values():
