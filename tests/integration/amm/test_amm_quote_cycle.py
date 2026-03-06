@@ -4,8 +4,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from src.amm.main import quote_cycle, run_market
 from src.amm.models.market_context import MarketContext
 from src.amm.models.inventory import Inventory
