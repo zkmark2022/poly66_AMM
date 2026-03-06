@@ -7,6 +7,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import os
 import uvicorn
 from dataclasses import dataclass
 
@@ -56,10 +57,14 @@ def create_health_app(state: HealthState) -> FastAPI:
     return app
 
 
+_DEFAULT_HEALTH_HOST = "127.0.0.1"
+
+
 async def run_health_server(state: HealthState, port: int = 8001) -> None:
     """Run the health check server as an asyncio task."""
+    host = os.environ.get("AMM_HEALTH_HOST", _DEFAULT_HEALTH_HOST)
     app = create_health_app(state)
-    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning")
+    config = uvicorn.Config(app, host=host, port=port, log_level="warning")
     server = uvicorn.Server(config)
     logger.info("AMM health server starting on port %d", port)
     await server.serve()

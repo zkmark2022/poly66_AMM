@@ -1,5 +1,6 @@
 """AMM market runtime context."""
 import time
+import uuid
 from dataclasses import dataclass, field
 from src.amm.models.enums import DefenseLevel, Phase
 from src.amm.models.inventory import Inventory
@@ -24,3 +25,5 @@ class MarketContext:
     oracle_lag_threshold: float = 10.0
     oracle_deviation_threshold: float = 20.0
     started_at: float = field(default_factory=time.monotonic)
+    winding_down: bool = False
+    winding_down_session_id: str = field(default_factory=lambda: str(uuid.uuid4()))

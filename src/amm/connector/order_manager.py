@@ -3,10 +3,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from src.amm.connector.api_client import AMMApiClient
 from src.amm.cache.inventory_cache import InventoryCache
 from src.amm.strategy.models import OrderIntent
+
+if TYPE_CHECKING:
+    from src.amm.cache.order_cache import OrderCache
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +25,15 @@ class ActiveOrder:
 
 
 class OrderManager:
-    def __init__(self, api: AMMApiClient, cache: InventoryCache) -> None:
+    def __init__(
+        self,
+        api: AMMApiClient,
+        cache: InventoryCache,
+        order_cache: "OrderCache | None" = None,
+    ) -> None:
         self._api = api
         self._cache = cache
+        self._order_cache = order_cache
         self.active_orders: dict[str, ActiveOrder] = {}
 
     async def execute_intents(self, intents: list[OrderIntent], market_id: str) -> None:
@@ -49,6 +59,8 @@ class OrderManager:
             try:
                 await self._api.cancel_order(oid)
                 self.active_orders.pop(oid, None)
+                if self._order_cache is not None:
+                    await self._order_cache.delete_order(market_id, oid)
             except Exception as e:
                 logger.error("Failed to cancel order %s: %s", oid, e)
 
@@ -110,13 +122,23 @@ class OrderManager:
             return
 
         self.active_orders.pop(old_order.order_id, None)
-        self.active_orders[order_id] = ActiveOrder(
+        new_active = ActiveOrder(
             order_id=order_id,
             side=new_intent.side,
             direction=new_intent.direction,
             price_cents=new_intent.price_cents,
             remaining_quantity=new_intent.quantity,
         )
+        self.active_orders[order_id] = new_active
+        if self._order_cache is not None:
+            await self._order_cache.delete_order(market_id, old_order.order_id)
+            await self._order_cache.set_order(market_id, order_id, {
+                "order_id": order_id,
+                "side": new_intent.side,
+                "direction": new_intent.direction,
+                "price_cents": new_intent.price_cents,
+                "remaining_quantity": new_intent.quantity,
+            })
 
     async def _place_intent(self, intent: OrderIntent, market_id: str) -> None:
         fingerprint = self._intent_fingerprint(intent)
@@ -147,6 +169,14 @@ class OrderManager:
                     price_cents=intent.price_cents,
                     remaining_quantity=intent.quantity,
                 )
+                if self._order_cache is not None:
+                    await self._order_cache.set_order(market_id, order_id, {
+                        "order_id": order_id,
+                        "side": intent.side,
+                        "direction": intent.direction,
+                        "price_cents": intent.price_cents,
+                        "remaining_quantity": intent.quantity,
+                    })
             else:
                 await self._cache.clear_order_submission(market_id, fingerprint)
         except Exception as e:
@@ -190,6 +220,22 @@ class OrderManager:
         await self._api.batch_cancel(market_id, scope="ALL")
         self.active_orders.clear()
         await self._sync_pending_sell(market_id)
+        if self._order_cache is not None:
+            await self._order_cache.clear(market_id)
+
+    async def load_from_cache(self, market_id: str) -> None:
+        """Restore active_orders from Redis after restart."""
+        if self._order_cache is None:
+            return
+        orders = await self._order_cache.get_all_orders(market_id)
+        for order_id, order_data in orders.items():
+            self.active_orders[order_id] = ActiveOrder(
+                order_id=order_id,
+                side=order_data["side"],
+                direction=order_data["direction"],
+                price_cents=order_data["price_cents"],
+                remaining_quantity=order_data["remaining_quantity"],
+            )
 
     @staticmethod
     def _intent_fingerprint(intent: OrderIntent) -> str:

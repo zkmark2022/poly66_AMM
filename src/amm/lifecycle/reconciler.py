@@ -36,6 +36,8 @@ class AMMReconciler:
         frozen_cents = int(bal.get("frozen_balance_cents", 0))
 
         results: dict[str, dict] = {}
+        n_markets = max(1, len(market_ids))
+        allocated_cash = cash_cents // n_markets
 
         for market_id in market_ids:
             pos_resp = await self._api.get_positions(market_id)
@@ -50,6 +52,7 @@ class AMMReconciler:
                 yes_pending_sell=0,
                 no_pending_sell=0,
                 frozen_balance_cents=frozen_cents,
+                allocated_cash_cents=allocated_cash,
             )
 
             cached = await self._cache.get(market_id)

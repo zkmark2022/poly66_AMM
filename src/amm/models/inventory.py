@@ -12,6 +12,7 @@ class Inventory:
     yes_pending_sell: int
     no_pending_sell: int
     frozen_balance_cents: int
+    allocated_cash_cents: int = 0
 
     @property
     def yes_available(self) -> int:
