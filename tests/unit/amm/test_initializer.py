@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+import pytest
 
 from src.amm.lifecycle.initializer import AMMInitializer
 from src.amm.config.models import GlobalConfig, MarketConfig
@@ -108,6 +109,7 @@ class TestAMMInitializer:
         await init.initialize(["mkt-1"])
         api.get_balance.assert_called_once()
         api.get_positions.assert_called_once_with("mkt-1")
+        api.get_market.assert_called_once_with("mkt-1")
 
     async def test_initialize_writes_inventory_to_redis(self) -> None:
         cache = _make_cache()
@@ -151,8 +153,8 @@ class TestAMMInitializer:
         # With yes_volume=0, mint fires → get_balance + get_positions called twice
         assert api.get_balance.call_count == 2
         assert api.get_positions.call_count == 2
-        # Cache is updated twice: once before mint, once after
-        assert cache.set.call_count == 2
+        # Cache is updated once with the final post-mint inventory only
+        assert cache.set.call_count == 1
         # Cache.get is NOT used for post-mint re-fetch
         cache.get.assert_not_called()
 
@@ -193,3 +195,35 @@ class TestAMMInitializer:
         )
         contexts = await init.initialize(["mkt-1", "mkt-2", "mkt-3"])
         assert len(contexts) == 3
+
+    async def test_initialize_failure_after_position_fetch_rolls_back_cache(self) -> None:
+        api = _make_api()
+        api.mint.side_effect = RuntimeError("mint failed")
+        cache = _make_cache()
+        init = AMMInitializer(
+            token_manager=_make_token_manager(),
+            api=api,
+            config_loader=_make_config_loader(),
+            inventory_cache=cache,
+        )
+
+        with pytest.raises(RuntimeError, match="mint failed"):
+            await init.initialize(["mkt-1"])
+
+        cache.set.assert_not_called()
+        cache.delete.assert_called_once_with("mkt-1")
+
+    async def test_initialize_inactive_market_raises_value_error(self) -> None:
+        api = _make_api(market={"data": {"id": "mkt-1", "status": "PAUSED"}})
+        cache = _make_cache()
+        init = AMMInitializer(
+            token_manager=_make_token_manager(),
+            api=api,
+            config_loader=_make_config_loader(),
+            inventory_cache=cache,
+        )
+
+        with pytest.raises(ValueError, match="not active"):
+            await init.initialize(["mkt-1"])
+
+        cache.set.assert_not_called()

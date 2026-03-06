@@ -304,3 +304,27 @@ class TestDeduplication:
         assert len(r1) == 1
         assert r2 == []
         assert cache.adjust.call_count == 1
+
+    async def test_same_trade_id_in_different_markets_is_not_duplicate(self) -> None:
+        api = AsyncMock()
+        trade = _amm_buy_trade("shared-trade")
+        api.get_trades.return_value = _api_resp([trade])
+        cache = AsyncMock()
+        cache.get.return_value = None
+        poller = TradePoller(api=api, cache=cache)
+
+        first = await poller.poll("mkt-1")
+        second = await poller.poll("mkt-2")
+
+        assert len(first) == 1
+        assert len(second) == 1
+        assert cache.adjust.call_count == 2
+
+    def test_dedup_window_is_bounded(self) -> None:
+        poller = TradePoller(api=AsyncMock(), cache=AsyncMock())
+
+        for idx in range(1001):
+            assert poller._is_processed("mkt-1", f"trade-{idx}") is False
+
+        assert poller._is_processed("mkt-1", "trade-0") is False
+        assert len(poller._processed_ids["mkt-1"]) == 1000

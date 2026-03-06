@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import random
 import re
 from typing import Any
 
@@ -14,6 +15,12 @@ logger = logging.getLogger(__name__)
 
 MAX_RETRY_ATTEMPTS = 3
 MAX_RETRY_SECONDS = 60
+RETRYABLE_STATUS = {502, 503, 504}
+RETRYABLE_EXCEPTIONS = (
+    httpx.TimeoutException,
+    httpx.TransportError,
+    httpx.ConnectError,
+)
 
 _ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -34,30 +41,47 @@ class AMMApiClient:
         self._client = http_client or httpx.AsyncClient(base_url=base_url, timeout=10.0)
 
     async def _request(
-        self, method: str, path: str, _retry_count: int = 0, **kwargs: Any,
+        self, method: str, path: str, **kwargs: Any,
     ) -> dict:
-        """Make authenticated request with auto-retry on 401 and 429."""
-        headers = {"Authorization": f"Bearer {self._token_manager.access_token}"}
-        resp = await self._client.request(method, path, headers=headers, **kwargs)
+        """Make authenticated request with retries for safe/idempotent operations only."""
+        method = method.upper()
+        can_retry = method in {"GET", "DELETE"}
 
-        if resp.status_code == 401:
-            await self._token_manager.refresh()
-            headers["Authorization"] = f"Bearer {self._token_manager.access_token}"
-            resp = await self._client.request(method, path, headers=headers, **kwargs)
-
-        if resp.status_code == 429 and _retry_count < MAX_RETRY_ATTEMPTS:
+        for attempt in range(MAX_RETRY_ATTEMPTS):
+            headers = {"Authorization": f"Bearer {self._token_manager.access_token}"}
             try:
-                retry_after = min(int(resp.headers.get("Retry-After", "1")), MAX_RETRY_SECONDS)
-            except ValueError:
-                retry_after = 1
-            backoff = min(retry_after * (2 ** _retry_count), 30)
-            logger.warning("Rate limited on %s %s (attempt %d/%d), sleeping %ds",
-                           method, path, _retry_count + 1, MAX_RETRY_ATTEMPTS, backoff)
-            await asyncio.sleep(backoff)
-            return await self._request(method, path, _retry_count=_retry_count + 1, **kwargs)
+                resp = await self._client.request(method, path, headers=headers, **kwargs)
+            except RETRYABLE_EXCEPTIONS:
+                if not can_retry or attempt == MAX_RETRY_ATTEMPTS - 1:
+                    raise
+                await asyncio.sleep(min(2 ** attempt, MAX_RETRY_SECONDS))
+                continue
 
-        resp.raise_for_status()
-        return resp.json()
+            if resp.status_code == 401:
+                await self._token_manager.refresh()
+                continue
+
+            if resp.status_code == 429:
+                if not can_retry or attempt == MAX_RETRY_ATTEMPTS - 1:
+                    resp.raise_for_status()
+                try:
+                    retry_after = float(resp.headers.get("Retry-After", "2"))
+                except ValueError:
+                    retry_after = 2.0
+                await asyncio.sleep(min(retry_after, MAX_RETRY_SECONDS))
+                continue
+
+            if resp.status_code in RETRYABLE_STATUS:
+                if not can_retry or attempt == MAX_RETRY_ATTEMPTS - 1:
+                    resp.raise_for_status()
+                wait = (2 ** attempt) + random.uniform(0, 1)
+                await asyncio.sleep(min(wait, MAX_RETRY_SECONDS))
+                continue
+
+            resp.raise_for_status()
+            return resp.json()
+
+        raise RuntimeError(f"Max retries exceeded for {method} {path}")
 
     async def place_order(self, params: dict) -> dict:
         return await self._request("POST", "/orders", json=params)

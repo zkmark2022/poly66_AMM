@@ -46,5 +46,8 @@ class TokenManager:
             return
         resp.raise_for_status()
         data = resp.json()
-        self.access_token = data["data"]["access_token"]
+        token_data = data["data"]
+        self.access_token = token_data["access_token"]
+        if "refresh_token" in token_data:
+            self._refresh_token = token_data["refresh_token"]
         logger.debug("AMM token refreshed")

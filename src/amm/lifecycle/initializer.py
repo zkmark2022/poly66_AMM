@@ -45,43 +45,50 @@ class AMMInitializer:
 
             # Step 3: Load market config
             market_config = await self._config_loader.load_market(market_id)
+            try:
+                market_resp = await self._api.get_market(market_id)
+                market_data = market_resp.get("data", {})
+                market_status = str(market_data.get("status", "")).lower()
+                if market_status not in {"active", "open"}:
+                    raise ValueError(
+                        f"Market {market_id} is not active (status={market_data.get('status')})"
+                    )
 
-            # Step 4: Fetch current state from API (DB truth)
-            balance_resp = await self._api.get_balance()
-            positions_resp = await self._api.get_positions(market_id)
-
-            # Step 5: Build inventory from API response
-            inventory = self._build_inventory(balance_resp, positions_resp)
-
-            # Step 6: Write to Redis cache
-            await self._inventory_cache.set(market_id, inventory)
-
-            # Step 7: Initial mint if no positions
-            if inventory.yes_volume == 0 and inventory.no_volume == 0:
-                idempotency_key = f"init_{market_id}_{int(time.time())}"
-                await self._api.mint(
-                    market_id,
-                    market_config.initial_mint_quantity,
-                    idempotency_key,
-                )
-                logger.info("Minted %d shares for market %s",
-                            market_config.initial_mint_quantity, market_id)
-                # Re-fetch from API (cache is pre-mint stale) and update cache
+                # Step 4: Fetch current state from API (DB truth)
                 balance_resp = await self._api.get_balance()
                 positions_resp = await self._api.get_positions(market_id)
+
+                # Step 5: Build inventory locally, then mint if needed
                 inventory = self._build_inventory(balance_resp, positions_resp)
+                if inventory.yes_volume == 0 and inventory.no_volume == 0:
+                    idempotency_key = f"init_{market_id}_{int(time.time())}"
+                    await self._api.mint(
+                        market_id,
+                        market_config.initial_mint_quantity,
+                        idempotency_key,
+                    )
+                    logger.info("Minted %d shares for market %s",
+                                market_config.initial_mint_quantity, market_id)
+                    balance_resp = await self._api.get_balance()
+                    positions_resp = await self._api.get_positions(market_id)
+                    inventory = self._build_inventory(balance_resp, positions_resp)
+
+                # Step 6: Persist only the final inventory
                 await self._inventory_cache.set(market_id, inventory)
 
-            # Step 8: Create MarketContext
-            ctx = MarketContext(
-                market_id=market_id,
-                config=market_config,
-                inventory=inventory,
-                phase=Phase.EXPLORATION,
-                defense_level=DefenseLevel.NORMAL,
-            )
-            contexts[market_id] = ctx
-            logger.info("Market %s initialized", market_id)
+                # Step 7: Create MarketContext
+                ctx = MarketContext(
+                    market_id=market_id,
+                    config=market_config,
+                    inventory=inventory,
+                    phase=Phase.EXPLORATION,
+                    defense_level=DefenseLevel.NORMAL,
+                )
+                contexts[market_id] = ctx
+                logger.info("Market %s initialized", market_id)
+            except Exception:
+                await self._inventory_cache.delete(market_id)
+                raise
 
         return contexts
 
