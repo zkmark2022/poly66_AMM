@@ -1,12 +1,12 @@
 """AMM bot entry point — quote cycle orchestrator."""
 import asyncio
+import inspect
 import logging
 import os
 import signal
 from pathlib import Path
 import time
-from typing import Any
-from typing import cast
+from typing import Any, Callable, cast
 
 import httpx
 
@@ -41,6 +41,121 @@ from src.amm.oracle.polymarket_oracle import OracleState
 from src.amm.strategy.pricing.three_layer import ThreeLayerPricing
 
 logger = logging.getLogger(__name__)
+SHUTDOWN_TIMEOUT_SECONDS = 30.0
+
+
+def _build_signal_handler(
+    contexts: dict[str, MarketContext],
+    market_task_handles: list[asyncio.Task],
+    background_tasks: list[asyncio.Task],
+    shutdown_event: asyncio.Event,
+) -> Callable[[], None]:
+    def _signal_handler() -> None:
+        logger.info("Shutdown signal received - initiating graceful shutdown")
+        for ctx in contexts.values():
+            ctx.shutdown_requested = True
+        shutdown_event.set()
+        for task in market_task_handles + background_tasks:
+            task.cancel()
+
+    return _signal_handler
+
+
+def _shutdown_requested(contexts: dict[str, MarketContext]) -> bool:
+    return any(ctx.shutdown_requested for ctx in contexts.values())
+
+
+async def _wait_for_task_shutdown(tasks: list[asyncio.Task], timeout_seconds: float) -> None:
+    if not tasks:
+        return
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Shutdown timeout after %.0fs - forcing cancellation", timeout_seconds)
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=1.0,
+            )
+        except asyncio.TimeoutError:
+            logger.error("Tasks did not exit after forced cancellation")
+
+
+async def _oracle_refresh_loop(
+    oracle: PolymarketOracle,
+    interval_seconds: float,
+    shutdown_contexts: dict[str, MarketContext],
+) -> None:
+    """Periodically refresh oracle price in background."""
+    while not _shutdown_requested(shutdown_contexts):
+        try:
+            await _refresh_oracle(oracle)
+            logger.debug("Oracle price refreshed: %.2f", getattr(oracle, "last_price", 0) or 0)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning("Oracle background refresh failed: %s", e)
+
+        if _shutdown_requested(shutdown_contexts):
+            break
+
+        await asyncio.sleep(interval_seconds)
+
+
+async def _refresh_oracle(oracle: PolymarketOracle) -> None:
+    refresh = getattr(oracle, "refresh", None)
+    if callable(refresh):
+        if inspect.iscoroutinefunction(refresh):
+            await refresh()
+            return
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, refresh)
+        return
+
+    await oracle.get_price()
+
+
+async def _evaluate_oracle_state(
+    oracle: PolymarketOracle,
+    ctx: MarketContext,
+    internal_price_cents: float,
+) -> OracleState:
+    evaluate = getattr(oracle, "evaluate", None)
+    if callable(evaluate):
+        result = evaluate(internal_price_cents=internal_price_cents)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    check_stale = getattr(oracle, "check_stale", None)
+    if callable(check_stale):
+        if check_stale():
+            return OracleState.STALE
+        check_lvr = getattr(oracle, "check_lvr", None)
+        if callable(check_lvr) and check_lvr():
+            return OracleState.LVR
+        deviation = oracle.check_deviation(internal_price_cents)
+    else:
+        if oracle.check_lag(threshold_seconds=ctx.oracle_lag_threshold):
+            return OracleState.STALE
+        deviation = oracle.check_deviation(
+            internal_price_cents,
+            threshold=ctx.oracle_deviation_threshold,
+        )
+
+    if inspect.isawaitable(deviation):
+        deviation = await deviation
+    if deviation:
+        return OracleState.DEVIATION
+
+    return OracleState.NORMAL
 
 
 async def quote_cycle(
@@ -119,11 +234,11 @@ async def quote_cycle(
     # Step 3: Risk — oracle check then defense evaluation
     oracle_passive = False
     if oracle is not None and ctx.config.oracle_slug:
-        try:
-            oracle.refresh()
-        except RuntimeError as e:
-            logger.warning("Oracle refresh failed for %s: %s", ctx.market_id, e)
-        oracle_state = oracle.evaluate(internal_price_cents=float(mid))
+        oracle_state = await _evaluate_oracle_state(
+            oracle,
+            ctx,
+            internal_price_cents=float(mid),
+        )
         if oracle_state != OracleState.NORMAL:
             ctx.defense_level = oracle_state.defense_level
             logger.warning(
@@ -237,11 +352,16 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
 
     # Shutdown handler
     shutdown = GracefulShutdown(api=api)
+    market_task_handles: list[asyncio.Task] = []
+    background_tasks: list[asyncio.Task] = []
+    _shutdown_event = asyncio.Event()
 
-    def _signal_handler() -> None:
-        logger.info("Shutdown signal received")
-        for ctx in contexts.values():
-            ctx.shutdown_requested = True
+    _signal_handler = _build_signal_handler(
+        contexts=contexts,
+        market_task_handles=market_task_handles,
+        background_tasks=background_tasks,
+        shutdown_event=_shutdown_event,
+    )
 
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -309,14 +429,18 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
             "phase_mgr": phase_mgr,
         }
         tasks.append(asyncio.create_task(run_market_with_health(ctx, services, health_state, oracle=oracle)))
+    market_task_handles.extend(tasks)
 
     # Background tasks: reconciler + health server
     reconciler = AMMReconciler(api=api, cache=inventory_cache)
-    background_tasks: list[asyncio.Task] = []
-
     background_tasks.append(asyncio.create_task(
         reconcile_loop(reconciler, contexts, 300.0)
     ))
+    if oracle is not None:
+        oracle_interval = _oracle_data.get("update_interval_seconds", 30.0)
+        background_tasks.append(asyncio.create_task(
+            _oracle_refresh_loop(oracle, oracle_interval, contexts)
+        ))
     background_tasks.append(asyncio.create_task(
         run_health_server(health_state)
     ))
@@ -328,9 +452,13 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
                 logger.error("Market task %d failed: %s", i, result, exc_info=result)
     finally:
         health_state.ready = False
-        for task in background_tasks:
-            task.cancel()
-        await asyncio.gather(*background_tasks, return_exceptions=True)
+        if not _shutdown_event.is_set():
+            for ctx in contexts.values():
+                ctx.shutdown_requested = True
+            for task in background_tasks:
+                if not task.done():
+                    task.cancel()
+        await _wait_for_task_shutdown(tasks + background_tasks, SHUTDOWN_TIMEOUT_SECONDS)
         await shutdown.execute(contexts)
         await http_client.aclose()
         await redis_client.aclose()

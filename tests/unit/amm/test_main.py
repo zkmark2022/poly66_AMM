@@ -3,13 +3,20 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.amm.config.models import GlobalConfig, MarketConfig
 from src.amm.lifecycle.health import HealthState
-from src.amm.main import amm_main, run_market_with_health
+from src.amm.main import (
+    _build_signal_handler,
+    _evaluate_oracle_state,
+    _oracle_refresh_loop,
+    _wait_for_task_shutdown,
+    amm_main,
+    run_market_with_health,
+)
 from src.amm.models.inventory import Inventory
 from src.amm.models.market_context import MarketContext
 
@@ -135,3 +142,161 @@ class TestAMMMain:
         shutdown.execute.assert_awaited_once()
         redis_client.aclose.assert_awaited_once()
         http_client.aclose.assert_awaited_once()
+
+    async def test_signal_handler_marks_shutdown_and_cancels_tasks(self) -> None:
+        contexts = {"mkt-1": _make_context()}
+        shutdown_event = asyncio.Event()
+
+        started = asyncio.Event()
+
+        async def sleeper() -> None:
+            started.set()
+            await asyncio.sleep(3600)
+
+        market_task = asyncio.create_task(sleeper())
+        background_task = asyncio.create_task(sleeper())
+        await started.wait()
+
+        handler = _build_signal_handler(
+            contexts=contexts,
+            market_task_handles=[market_task],
+            background_tasks=[background_task],
+            shutdown_event=shutdown_event,
+        )
+        handler()
+
+        results = await asyncio.gather(market_task, background_task, return_exceptions=True)
+
+        assert contexts["mkt-1"].shutdown_requested is True
+        assert shutdown_event.is_set() is True
+        assert all(isinstance(result, asyncio.CancelledError) for result in results)
+
+    async def test_wait_for_task_shutdown_force_cancels_after_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        task = MagicMock(spec=asyncio.Task)
+        task.done.return_value = False
+
+        gather_calls = 0
+        fake_gather = AsyncMock(return_value=[asyncio.CancelledError()])
+
+        async def fake_wait_for(awaitable: object, timeout: float) -> object:
+            nonlocal gather_calls
+            gather_calls += 1
+            if gather_calls == 1:
+                close = getattr(awaitable, "close", None)
+                if callable(close):
+                    close()
+                raise asyncio.TimeoutError
+            return await awaitable
+
+        monkeypatch.setattr("src.amm.main.asyncio.wait_for", fake_wait_for)
+        monkeypatch.setattr("src.amm.main.asyncio.gather", fake_gather)
+
+        await _wait_for_task_shutdown([task], timeout_seconds=0.01)
+
+        task.cancel.assert_called_once()
+
+    async def test_oracle_refresh_loop_refreshes_in_background(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        contexts = {"mkt-1": _make_context()}
+        oracle = MagicMock()
+        oracle.last_price = 52.0
+        refresh_calls = 0
+        original_sleep = asyncio.sleep
+
+        async def fake_sleep(_seconds: float) -> None:
+            await original_sleep(0)
+
+        def refresh() -> None:
+            nonlocal refresh_calls
+            refresh_calls += 1
+            if refresh_calls >= 2:
+                contexts["mkt-1"].shutdown_requested = True
+
+        oracle.refresh.side_effect = refresh
+        monkeypatch.setattr("src.amm.main.asyncio.sleep", fake_sleep)
+
+        await _oracle_refresh_loop(oracle, 0.01, contexts)
+
+        assert oracle.refresh.call_count == 2
+
+    async def test_oracle_refresh_loop_refreshes_before_first_sleep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        contexts = {"mkt-1": _make_context()}
+        oracle = MagicMock()
+        sleep_calls = 0
+
+        async def fake_sleep(_seconds: float) -> None:
+            nonlocal sleep_calls
+            sleep_calls += 1
+
+        def refresh() -> None:
+            contexts["mkt-1"].shutdown_requested = True
+
+        oracle.refresh.side_effect = refresh
+        monkeypatch.setattr("src.amm.main.asyncio.sleep", fake_sleep)
+
+        await _oracle_refresh_loop(oracle, 0.01, contexts)
+
+        oracle.refresh.assert_called_once()
+        assert sleep_calls == 0
+
+    async def test_oracle_refresh_loop_runs_sync_refresh_in_executor(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        contexts = {"mkt-1": _make_context()}
+        oracle = SimpleNamespace(refresh=MagicMock(), last_price=52.0)
+        executor_calls: list[tuple[object | None, object]] = []
+
+        class FakeLoop:
+            async def run_in_executor(self, executor: object | None, func: object) -> None:
+                executor_calls.append((executor, func))
+                contexts["mkt-1"].shutdown_requested = True
+                func()
+
+        async def fake_sleep(_seconds: float) -> None:
+            raise AssertionError("sleep should not run before the initial refresh")
+
+        monkeypatch.setattr("src.amm.main.asyncio.get_running_loop", lambda: FakeLoop())
+        monkeypatch.setattr("src.amm.main.asyncio.sleep", fake_sleep)
+
+        await _oracle_refresh_loop(oracle, 0.01, contexts)
+
+        assert executor_calls == [(None, oracle.refresh)]
+        oracle.refresh.assert_called_once()
+
+    async def test_oracle_refresh_loop_logs_refresh_failures(self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+        contexts = {"mkt-1": _make_context()}
+        original_sleep = asyncio.sleep
+
+        async def fake_sleep(_seconds: float) -> None:
+            await original_sleep(0)
+
+        oracle = MagicMock()
+        oracle.last_price = None
+
+        def refresh() -> None:
+            contexts["mkt-1"].shutdown_requested = True
+            raise ValueError("oracle unavailable")
+
+        oracle.refresh.side_effect = refresh
+        monkeypatch.setattr("src.amm.main.asyncio.sleep", fake_sleep)
+
+        await _oracle_refresh_loop(oracle, 0.01, contexts)
+
+        assert "Oracle background refresh failed: oracle unavailable" in caplog.text
+
+    async def test_evaluate_oracle_state_supports_legacy_async_oracle(self) -> None:
+        ctx = _make_context()
+
+        class LegacyOracle:
+            def check_lag(self, threshold_seconds: float = 3.0) -> bool:
+                assert threshold_seconds == ctx.oracle_lag_threshold
+                return False
+
+            async def check_deviation(self, internal_price: float, threshold: float = 20.0) -> bool:
+                assert internal_price == 51.0
+                assert threshold == ctx.oracle_deviation_threshold
+                return False
+
+        state = await _evaluate_oracle_state(LegacyOracle(), ctx, internal_price_cents=51.0)
+
+        assert state.value == "NORMAL"
