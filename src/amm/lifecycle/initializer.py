@@ -90,6 +90,8 @@ class AMMInitializer:
                     phase=Phase.EXPLORATION,
                     defense_level=DefenseLevel.NORMAL,
                     initial_inventory_value_cents=initial_inv_value,
+                    last_known_market_active=True,
+                    market_status_checked_at=time.monotonic(),
                 )
                 contexts[market_id] = ctx
                 logger.info("Market %s initialized", market_id)

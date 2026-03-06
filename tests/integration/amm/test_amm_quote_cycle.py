@@ -149,13 +149,15 @@ class TestQuoteCycle:
         services["order_mgr"].cancel_all.assert_called_once_with("mkt-1")
         services["order_mgr"].execute_intents.assert_not_called()
 
-    async def test_cycle_handles_api_error_gracefully(self) -> None:
-        """API failure in execute_intents is caught — run_market doesn't crash."""
+    async def test_cycle_handles_recoverable_api_error_gracefully(self) -> None:
+        """Recoverable API failure (network transport) is tolerated — run_market doesn't crash."""
+        import httpx
+
         ctx = _make_ctx()
         ctx.config = MarketConfig(market_id="mkt-1", quote_interval_seconds=0.01,
                                   remaining_hours_override=24.0)
         services = _make_services()
-        services["order_mgr"].execute_intents.side_effect = Exception("API error")
+        services["order_mgr"].execute_intents.side_effect = httpx.TransportError("network error")
 
         # poll sets shutdown_requested after first call so loop exits
         call_count = 0
@@ -169,8 +171,22 @@ class TestQuoteCycle:
 
         services["poller"].poll.side_effect = _poll_then_stop
 
-        # Should complete without raising (run_market catches errors internally)
+        # Recoverable network error: run_market should not crash
         await run_market(ctx, services)
+
+    async def test_cycle_raises_on_unrecoverable_error(self) -> None:
+        """Programming errors (TypeError etc.) must propagate and set shutdown_requested."""
+        ctx = _make_ctx()
+        ctx.config = MarketConfig(market_id="mkt-1", quote_interval_seconds=0.01,
+                                  remaining_hours_override=24.0)
+        services = _make_services()
+        services["order_mgr"].execute_intents.side_effect = TypeError("bug: bad type")
+
+        import pytest
+        with pytest.raises(TypeError, match="bug"):
+            await run_market(ctx, services)
+
+        assert ctx.shutdown_requested is True
 
     async def test_cycle_updates_defense_level_on_context(self) -> None:
         ctx = _make_ctx()

@@ -1,9 +1,14 @@
 """Auto-reinvest lifecycle helpers for AMM funds management."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from src.amm.connector.api_client import AMMApiClient
 from src.amm.models.market_context import MarketContext
 from src.amm.strategy.models import OrderIntent
+
+if TYPE_CHECKING:
+    from src.amm.cache.inventory_cache import InventoryCache
 
 AUTO_REINVEST_THRESHOLD_CENTS = 50_000  # $500
 PAIR_COST_CENTS = 100
@@ -12,6 +17,7 @@ PAIR_COST_CENTS = 100
 async def maybe_auto_reinvest(
     ctx: MarketContext,
     api: AMMApiClient,
+    inventory_cache: "InventoryCache | None" = None,
     threshold_cents: int = AUTO_REINVEST_THRESHOLD_CENTS,
 ) -> int:
     """Mint extra YES/NO pairs when cash exceeds threshold.
@@ -35,6 +41,10 @@ async def maybe_auto_reinvest(
     # Keep reserve consistency: YES+NO cost sums increase by quantity * 100.
     ctx.inventory.yes_cost_sum_cents += quantity * 50
     ctx.inventory.no_cost_sum_cents += quantity * 50
+
+    if inventory_cache is not None:
+        await inventory_cache.set(ctx.market_id, ctx.inventory)
+
     return quantity
 
 

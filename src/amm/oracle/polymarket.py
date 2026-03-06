@@ -43,9 +43,14 @@ class PolymarketOracle:
         return 50.0
 
     async def check_deviation(self, internal_price: float, threshold: float = 20.0) -> bool:
-        """Return True if |internal_price - external_price| > threshold (cents)."""
-        external = await self.get_price()
-        return abs(internal_price - external) > threshold
+        """Return True if |internal_price - external_price| > threshold (cents).
+
+        Uses cached last_price to avoid repeated CLI subprocess calls.
+        Returns False when no price is cached yet (safe default on startup).
+        """
+        if self.last_price is None:
+            return False
+        return abs(internal_price - self.last_price) > threshold
 
     def check_lag(self, threshold_seconds: float = 3.0) -> bool:
         """Return True if oracle has never updated or last update is older than threshold."""

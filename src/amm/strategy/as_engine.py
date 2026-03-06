@@ -67,6 +67,7 @@ class ASEngine:
     def compute_quotes(
         self, mid_price: int, inventory_skew: float,
         gamma: float, sigma: float, tau_hours: float, kappa: float,
+        spread_min_cents: int = 2, spread_max_cents: int = 20,
     ) -> tuple[int, int]:
         """Compute ask and bid prices. Returns (ask_cents, bid_cents)."""
         r = self.reservation_price(mid_price, inventory_skew, gamma, sigma, tau_hours)
@@ -80,5 +81,20 @@ class ASEngine:
 
         if ask <= bid:
             ask = min(bid + 1, 99)
+
+        # Enforce minimum spread
+        actual_spread = ask - bid
+        if actual_spread < spread_min_cents:
+            half = spread_min_cents // 2
+            mid_r = round(r)
+            ask = clamp(mid_r + (spread_min_cents - half), 1, 99)
+            bid = clamp(mid_r - half, 1, 99)
+
+        # Enforce maximum spread
+        if ask - bid > spread_max_cents:
+            half = spread_max_cents // 2
+            mid_r = round(r)
+            ask = clamp(mid_r + (spread_max_cents - half), 1, 99)
+            bid = clamp(mid_r - half, 1, 99)
 
         return ask, bid
