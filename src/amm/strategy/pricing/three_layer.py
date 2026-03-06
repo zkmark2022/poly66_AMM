@@ -37,6 +37,8 @@ class ThreeLayerPricing:
         best_bid: int,
         best_ask: int,
         recent_trades: list[dict],
+        bid_depth: int = 0,
+        ask_depth: int = 0,
     ) -> int:
         """Compute mid-price as weighted combination of three layers."""
         if self._config is not None:
@@ -49,8 +51,13 @@ class ThreeLayerPricing:
             w_a, w_m, w_p = PHASE_WEIGHTS.get(phase, PHASE_WEIGHTS["EXPLORATION"])
 
         p_anchor = self._anchor.compute(anchor_price)
-        p_micro = self._micro.compute(best_bid, best_ask)
-        p_posterior = self._posterior.compute(recent_trades, fallback=p_anchor)
+        p_micro = self._micro.compute(best_bid, best_ask, bid_depth=bid_depth, ask_depth=ask_depth)
+        p_posterior = self._posterior.compute(recent_trades if recent_trades else None)
 
-        raw = w_a * p_anchor + w_m * p_micro + w_p * p_posterior
+        if p_micro is None:
+            # Thin book: redistribute micro weight to anchor
+            effective_w_a = w_a + w_m
+            raw = effective_w_a * p_anchor + w_p * p_posterior
+        else:
+            raw = w_a * p_anchor + w_m * p_micro + w_p * p_posterior
         return clamp(round(raw), 1, 99)

@@ -76,11 +76,15 @@ async def quote_cycle(
     # Step 2: Strategy — fetch live orderbook, then compute mid-price
     best_bid = ctx.config.anchor_price_cents - 5
     best_ask = ctx.config.anchor_price_cents + 5
+    bid_depth = 0
+    ask_depth = 0
     try:
         ob = await api.get_orderbook(ctx.market_id)
         ob_data = ob.get("data", ob)
         best_bid = int(ob_data.get("best_bid", best_bid))
         best_ask = int(ob_data.get("best_ask", best_ask))
+        bid_depth = int(ob_data.get("bid_depth", 0))
+        ask_depth = int(ob_data.get("ask_depth", 0))
     except Exception:
         logger.warning("Orderbook fetch failed for %s — using anchor fallback", ctx.market_id)
 
@@ -90,11 +94,13 @@ async def quote_cycle(
         best_bid=best_bid,
         best_ask=best_ask,
         recent_trades=recent_trades,
+        bid_depth=bid_depth,
+        ask_depth=ask_depth,
     )
 
     tau = ctx.config.remaining_hours_override if ctx.config.remaining_hours_override is not None else 24.0
     sigma = as_engine.bernoulli_sigma(mid)
-    gamma = ctx.config.gamma
+    gamma = as_engine.get_gamma_for_age(ctx.config)
     kappa = ctx.config.kappa
 
     ask, bid = as_engine.compute_quotes(
