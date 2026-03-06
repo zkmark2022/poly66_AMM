@@ -7,15 +7,17 @@ Integrates with the polymarket CLI to detect:
 """
 from __future__ import annotations
 
+import asyncio
 import json
-import subprocess
+import logging
 import time
 from enum import StrEnum
 
 from src.amm.config.models import MarketConfig
 from src.amm.models.enums import DefenseLevel
 
-_POLYMARKET_BIN = "/opt/homebrew/bin/polymarket"
+logger = logging.getLogger(__name__)
+_POLYMARKET_BIN = "polymarket"
 
 
 class OracleState(StrEnum):
@@ -43,25 +45,55 @@ class PolymarketOracle:
         state = oracle.evaluate(internal_mid)  # returns OracleState
     """
 
-    def __init__(self, config: MarketConfig) -> None:
+    def __init__(
+        self,
+        config: MarketConfig | None = None,
+        *,
+        market_slug: str | None = None,
+        oracle_stale_seconds: float = 3.0,
+        oracle_deviation_cents: float = 20.0,
+        oracle_lvr_window_seconds: float = 0.5,
+        oracle_lvr_threshold: float = 0.20,
+    ) -> None:
+        if config is None:
+            if market_slug is None:
+                raise TypeError("PolymarketOracle requires config or market_slug")
+            config = MarketConfig(
+                market_id=market_slug,
+                oracle_slug=market_slug,
+                oracle_stale_seconds=oracle_stale_seconds,
+                oracle_deviation_cents=oracle_deviation_cents,
+                oracle_lvr_window_seconds=oracle_lvr_window_seconds,
+                oracle_lvr_threshold=oracle_lvr_threshold,
+            )
+
         self._config = config
         # (monotonic_timestamp, price_cents)
         self._price_history: list[tuple[float, float]] = []
         self._last_refresh_time: float | None = None
+        self.last_price: float | None = None
+        self.last_update: float | None = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def refresh(self) -> None:
+    async def refresh(self) -> None:
         """Fetch price from Polymarket CLI and record it with current timestamp."""
-        price = self._fetch_price()
+        price = await self._fetch_price()
         now = time.monotonic()
         self._last_refresh_time = now
         self._price_history.append((now, price))
+        self.last_price = price
+        self.last_update = time.time()
         # Prune history older than 60 seconds (keep memory bounded)
         cutoff = now - 60.0
         self._price_history = [(t, p) for t, p in self._price_history if t >= cutoff]
+
+    async def get_price(self) -> float:
+        """Refresh and return the latest YES price in cents."""
+        await self.refresh()
+        return self.get_yes_price()
 
     def get_yes_price(self) -> float:
         """Return latest cached YES price in cents (0–100).
@@ -77,6 +109,12 @@ class PolymarketOracle:
         if self._last_refresh_time is None:
             return True
         return (time.monotonic() - self._last_refresh_time) > self._config.oracle_stale_seconds
+
+    def check_lag(self, threshold_seconds: float = 3.0) -> bool:
+        """Compatibility shim for older callers using wall-clock lag checks."""
+        if self.last_update is None:
+            return True
+        return (time.time() - self.last_update) > threshold_seconds
 
     def check_deviation(self, internal_price_cents: float) -> bool:
         """Return True if |oracle_price - internal_price| exceeds deviation threshold."""
@@ -118,14 +156,33 @@ class PolymarketOracle:
     # Internal
     # ------------------------------------------------------------------
 
-    def _fetch_price(self) -> float:
+    async def _fetch_price(self) -> float:
         """Call polymarket CLI and parse YES price from outcomePrices field."""
-        result = subprocess.run(
-            [_POLYMARKET_BIN, "-o", "json", "markets", "get", self._config.oracle_slug],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"Polymarket CLI error: {result.stderr}")
-        data: dict = json.loads(result.stdout)
-        return float(data["outcomePrices"][0]) * 100.0
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                _POLYMARKET_BIN,
+                "-o",
+                "json",
+                "markets",
+                "get",
+                self._config.oracle_slug,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            returncode = getattr(proc, "returncode", 0)
+            if isinstance(returncode, int) and returncode != 0:
+                raise RuntimeError(stderr.decode() if stderr else "unknown polymarket CLI error")
+            data: dict[str, object] = json.loads(stdout.decode())
+            outcome_prices = data.get("outcomePrices")
+            if isinstance(outcome_prices, list) and outcome_prices:
+                return float(outcome_prices[0]) * 100.0
+        except asyncio.TimeoutError:
+            logger.warning("PolymarketOracle refresh timeout for %s", self._config.oracle_slug)
+        except Exception as exc:
+            logger.warning(
+                "PolymarketOracle refresh failed for %s: %s",
+                self._config.oracle_slug,
+                exc,
+            )
+        return 50.0

@@ -36,8 +36,7 @@ from src.amm.strategy.phase_manager import PhaseManager
 from src.amm.strategy.pricing.anchor import AnchorPricing
 from src.amm.strategy.pricing.micro import MicroPricing
 from src.amm.strategy.pricing.posterior import PosteriorPricing
-from src.amm.oracle.polymarket import PolymarketOracle
-from src.amm.oracle.polymarket_oracle import OracleState
+from src.amm.oracle.polymarket_oracle import OracleState, PolymarketOracle
 from src.amm.strategy.pricing.three_layer import ThreeLayerPricing
 
 logger = logging.getLogger(__name__)
@@ -126,7 +125,7 @@ async def _refresh_oracle(oracle: PolymarketOracle) -> None:
 
 
 async def _evaluate_oracle_state(
-    oracle: PolymarketOracle,
+    oracle: Any,
     ctx: MarketContext,
     internal_price_cents: float,
 ) -> OracleState:
@@ -134,8 +133,8 @@ async def _evaluate_oracle_state(
     if callable(evaluate):
         result = evaluate(internal_price_cents=internal_price_cents)
         if inspect.isawaitable(result):
-            return await result
-        return result
+            return cast(OracleState, await result)
+        return cast(OracleState, result)
 
     check_stale = getattr(oracle, "check_stale", None)
     if callable(check_stale):
@@ -392,10 +391,10 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     market_oracles: dict[str, PolymarketOracle | None] = {}
     for mid, ctx in contexts.items():
         if ctx.config.oracle_slug:
-            market_oracle = PolymarketOracle(ctx.config.oracle_slug)
+            market_oracle = PolymarketOracle(ctx.config)
             logger.info("Oracle enabled for %s: slug=%s", mid, ctx.config.oracle_slug)
             try:
-                await market_oracle.get_price()
+                await market_oracle.refresh()
             except Exception as e:
                 logger.warning("Oracle warm-up failed for %s: %s", mid, e)
             market_oracles[mid] = market_oracle
@@ -456,7 +455,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     market_task_handles.extend(tasks)
 
     # Background tasks: reconciler + per-market oracle refresh loops + health server
-    reconciler = AMMReconciler(api=api, cache=inventory_cache)
+    reconciler = AMMReconciler(api=api, inventory_cache=inventory_cache)
     background_tasks.append(asyncio.create_task(
         reconcile_loop(reconciler, contexts, 300.0),
         name="reconcile-loop",
