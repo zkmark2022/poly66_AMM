@@ -272,6 +272,10 @@ async def quote_cycle(
                 oracle_state, ctx.market_id, mid,
             )
 
+    # Short-circuit: already winding down (set in a prior cycle)
+    if ctx.winding_down:
+        return
+
     # Fetch live market status with TTL cache — avoids a REST call on every cycle
     now = time.monotonic()
     _terminal_status: str | None = None
