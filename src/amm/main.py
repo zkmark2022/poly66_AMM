@@ -303,7 +303,6 @@ async def quote_cycle(
 _RECOVERABLE_EXCEPTIONS = (
     httpx.TimeoutException,
     httpx.TransportError,
-    httpx.HTTPStatusError,
     ConnectionError,
     asyncio.TimeoutError,
 )

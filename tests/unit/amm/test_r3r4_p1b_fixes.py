@@ -436,50 +436,40 @@ class TestAutoReinvestSyncsCache:
 class TestPolymarketOracleCheckDeviationUsesCachedPrice:
     """check_deviation() must use self.last_price instead of re-calling get_price()."""
 
-    @pytest.mark.asyncio
-    async def test_check_deviation_uses_last_price_not_get_price(self) -> None:
+    def test_check_deviation_uses_last_price_not_get_price(self) -> None:
         from src.amm.oracle.polymarket import PolymarketOracle
 
         oracle = PolymarketOracle("some-market-slug")
         oracle.last_price = 60.0  # simulates a recently refreshed price
 
-        get_price_call_count = 0
-        original_get_price = oracle.get_price
+        # Verify get_price is not called by patching it to raise
+        def _should_not_be_called() -> float:
+            raise AssertionError("check_deviation() must NOT call get_price()")
 
-        async def _track_get_price() -> float:
-            nonlocal get_price_call_count
-            get_price_call_count += 1
-            return await original_get_price()
+        oracle.get_price = _should_not_be_called  # type: ignore[method-assign]
 
-        oracle.get_price = _track_get_price  # type: ignore[method-assign]
+        result = oracle.check_deviation(internal_price=50.0, threshold=5.0)
 
-        result = await oracle.check_deviation(internal_price=50.0, threshold=5.0)
-
-        assert get_price_call_count == 0, (
-            "check_deviation() must use cached last_price and NOT call get_price() again"
-        )
         assert result is True  # |50 - 60| = 10 > 5.0
 
-    @pytest.mark.asyncio
-    async def test_check_deviation_no_deviation_when_price_within_threshold(self) -> None:
+    def test_check_deviation_no_deviation_when_price_within_threshold(self) -> None:
         from src.amm.oracle.polymarket import PolymarketOracle
 
         oracle = PolymarketOracle("some-slug")
         oracle.last_price = 52.0
 
-        result = await oracle.check_deviation(internal_price=50.0, threshold=5.0)
+        result = oracle.check_deviation(internal_price=50.0, threshold=5.0)
 
         assert result is False  # |50 - 52| = 2 < 5.0
 
-    @pytest.mark.asyncio
-    async def test_check_deviation_returns_false_when_no_price_cached(self) -> None:
+    def test_check_deviation_returns_false_when_no_price_cached(self) -> None:
         """When last_price is None, deviation check must return False (safe default)."""
         from src.amm.oracle.polymarket import PolymarketOracle
 
         oracle = PolymarketOracle("some-slug")
         assert oracle.last_price is None
 
-        result = await oracle.check_deviation(internal_price=50.0, threshold=5.0)
+        result = oracle.check_deviation(internal_price=50.0, threshold=5.0)
 
         assert result is False, (
             "When no price is cached yet, check_deviation must return False "

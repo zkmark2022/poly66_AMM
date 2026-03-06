@@ -99,58 +99,52 @@ class TestPolymarketOracleGetPrice:
 
 
 class TestPolymarketOracleCheckDeviation:
-    @pytest.mark.asyncio
-    async def test_returns_true_when_deviation_exceeds_threshold(self) -> None:
+    def test_returns_true_when_deviation_exceeds_threshold(self) -> None:
         """check_deviation() returns True when |internal - external| > threshold."""
         oracle = PolymarketOracle("test-market")
         oracle.last_price = 70.0  # 外部价格 70¢ (cached by refresh loop)
         internal_price = 45  # 内部价格 45¢ → 差值 25 > 20
 
-        assert await oracle.check_deviation(internal_price, threshold=20.0) is True
+        assert oracle.check_deviation(internal_price, threshold=20.0) is True
 
-    @pytest.mark.asyncio
-    async def test_returns_false_when_deviation_within_threshold(self) -> None:
+    def test_returns_false_when_deviation_within_threshold(self) -> None:
         """check_deviation() returns False when |internal - external| <= threshold."""
         oracle = PolymarketOracle("test-market")
         oracle.last_price = 55.0  # 外部价格 55¢
         internal_price = 50  # 差值 5 < 20
 
-        assert await oracle.check_deviation(internal_price, threshold=20.0) is False
+        assert oracle.check_deviation(internal_price, threshold=20.0) is False
 
-    @pytest.mark.asyncio
-    async def test_returns_false_when_deviation_equals_threshold(self) -> None:
+    def test_returns_false_when_deviation_equals_threshold(self) -> None:
         """check_deviation() returns False when |internal - external| == threshold."""
         oracle = PolymarketOracle("test-market")
         oracle.last_price = 70.0
         internal_price = 50  # 差值 20 == threshold → not exceeded
 
-        assert await oracle.check_deviation(internal_price, threshold=20.0) is False
+        assert oracle.check_deviation(internal_price, threshold=20.0) is False
 
-    @pytest.mark.asyncio
-    async def test_uses_default_threshold_of_20(self) -> None:
+    def test_uses_default_threshold_of_20(self) -> None:
         """check_deviation() defaults to 20.0 cent threshold."""
         oracle = PolymarketOracle("test-market")
         oracle.last_price = 72.0
         internal_price = 50  # 差值 22 > 20
 
-        assert await oracle.check_deviation(internal_price) is True
+        assert oracle.check_deviation(internal_price) is True
 
-    @pytest.mark.asyncio
-    async def test_works_when_internal_price_is_higher(self) -> None:
+    def test_works_when_internal_price_is_higher(self) -> None:
         """check_deviation() detects when internal exceeds external by threshold."""
         oracle = PolymarketOracle("test-market")
         oracle.last_price = 40.0
         internal_price = 65  # 差值 25 > 20
 
-        assert await oracle.check_deviation(internal_price, threshold=20.0) is True
+        assert oracle.check_deviation(internal_price, threshold=20.0) is True
 
-    @pytest.mark.asyncio
-    async def test_returns_false_when_no_cached_price(self) -> None:
+    def test_returns_false_when_no_cached_price(self) -> None:
         """check_deviation() returns False when last_price is None (startup safe default)."""
         oracle = PolymarketOracle("test-market")
         assert oracle.last_price is None
 
-        assert await oracle.check_deviation(internal_price=50.0) is False
+        assert oracle.check_deviation(internal_price=50.0) is False
 
 
 class TestPolymarketOracleCheckLag:

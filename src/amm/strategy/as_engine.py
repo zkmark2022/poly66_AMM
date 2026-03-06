@@ -82,19 +82,28 @@ class ASEngine:
         if ask <= bid:
             ask = min(bid + 1, 99)
 
-        # Enforce minimum spread
-        actual_spread = ask - bid
-        if actual_spread < spread_min_cents:
-            half = spread_min_cents // 2
+        if spread_min_cents > spread_max_cents:
+            logger.warning(
+                "spread_min_cents=%d > spread_max_cents=%d; ignoring constraints",
+                spread_min_cents, spread_max_cents,
+            )
+        else:
             mid_r = round(r)
-            ask = clamp(mid_r + (spread_min_cents - half), 1, 99)
-            bid = clamp(mid_r - half, 1, 99)
 
-        # Enforce maximum spread
-        if ask - bid > spread_max_cents:
-            half = spread_max_cents // 2
-            mid_r = round(r)
-            ask = clamp(mid_r + (spread_max_cents - half), 1, 99)
-            bid = clamp(mid_r - half, 1, 99)
+            # Enforce minimum spread
+            if ask - bid < spread_min_cents:
+                half = spread_min_cents // 2
+                ask = clamp(mid_r + (spread_min_cents - half), 1, 99)
+                bid = clamp(mid_r - half, 1, 99)
+
+            # Enforce maximum spread
+            if ask - bid > spread_max_cents:
+                half = spread_max_cents // 2
+                ask = clamp(mid_r + (spread_max_cents - half), 1, 99)
+                bid = clamp(mid_r - half, 1, 99)
+
+            # Re-check after boundary clamping
+            if ask <= bid:
+                ask = min(bid + 1, 99)
 
         return ask, bid

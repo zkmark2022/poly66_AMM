@@ -17,7 +17,7 @@ PAIR_COST_CENTS = 100
 async def maybe_auto_reinvest(
     ctx: MarketContext,
     api: AMMApiClient,
-    inventory_cache: "InventoryCache | None" = None,
+    inventory_cache: InventoryCache | None = None,
     threshold_cents: int = AUTO_REINVEST_THRESHOLD_CENTS,
 ) -> int:
     """Mint extra YES/NO pairs when cash exceeds threshold.

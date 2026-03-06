@@ -42,7 +42,7 @@ class PolymarketOracle:
             logger.warning("PolymarketOracle.get_price failed for %s: %s", self.market_slug, exc)
         return 50.0
 
-    async def check_deviation(self, internal_price: float, threshold: float = 20.0) -> bool:
+    def check_deviation(self, internal_price: float, threshold: float = 20.0) -> bool:
         """Return True if |internal_price - external_price| > threshold (cents).
 
         Uses cached last_price to avoid repeated CLI subprocess calls.
