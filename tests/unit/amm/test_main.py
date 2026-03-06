@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import Awaitable, Callable
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -178,7 +179,7 @@ class TestAMMMain:
         gather_calls = 0
         fake_gather = AsyncMock(return_value=[asyncio.CancelledError()])
 
-        async def fake_wait_for(awaitable: object, timeout: float) -> object:
+        async def fake_wait_for(awaitable: Awaitable[object], timeout: float) -> object:
             nonlocal gather_calls
             gather_calls += 1
             if gather_calls == 1:
@@ -247,7 +248,11 @@ class TestAMMMain:
         executor_calls: list[tuple[object | None, object]] = []
 
         class FakeLoop:
-            async def run_in_executor(self, executor: object | None, func: object) -> None:
+            async def run_in_executor(
+                self,
+                executor: object | None,
+                func: Callable[[], object],
+            ) -> None:
                 executor_calls.append((executor, func))
                 contexts["mkt-1"].shutdown_requested = True
                 func()

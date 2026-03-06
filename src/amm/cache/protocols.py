@@ -21,4 +21,12 @@ class AsyncRedisLike(Protocol):
 
     async def delete(self, *names: str) -> int: ...
 
+    async def set(
+        self,
+        name: str,
+        value: Any,
+        ex: int | None = None,
+        nx: bool = False,
+    ) -> Any: ...
+
     def pipeline(self, transaction: bool = True) -> Any: ...
