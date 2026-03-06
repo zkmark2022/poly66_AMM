@@ -16,14 +16,19 @@ class PosteriorPricing:
             # YES trade = buyer of YES = probability goes up
             if trade.get("scenario") in ("TRANSFER_YES", "MINT"):
                 qty = trade.get("quantity", 0)
+                if not isinstance(qty, (int, float)) or qty < 0:
+                    continue
                 self._alpha += qty / 100.0
             elif trade.get("scenario") in ("TRANSFER_NO",):
                 qty = trade.get("quantity", 0)
+                if not isinstance(qty, (int, float)) or qty < 0:
+                    continue
                 self._beta += qty / 100.0
 
     def compute(self, trades: list[dict] | None = None) -> float:
         """Return posterior mean price in cents [1, 99]."""
         if trades:
             self.update(trades)
-        mean = self._alpha / (self._alpha + self._beta)
+        denom = self._alpha + self._beta
+        mean = self._alpha / denom if denom > 0 else 0.5
         return max(1.0, min(99.0, mean * 100.0))

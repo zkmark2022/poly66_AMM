@@ -1,8 +1,12 @@
 """Avellaneda-Stoikov pricing model adapted for prediction markets."""
 from __future__ import annotations
 
+import logging
 import math
+from datetime import date as _date
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 from src.amm.config.models import GAMMA_TIERS
 from src.amm.utils.integer_math import clamp
@@ -39,10 +43,16 @@ class ASEngine:
 
     def get_gamma_for_age(self, config: MarketConfig) -> float:
         """Return gamma based on market age (days since creation)."""
-        from datetime import date as _date
         if config.market_creation_date is None:
             return config.gamma  # fallback to static config
-        created = _date.fromisoformat(config.market_creation_date)
+        try:
+            created = _date.fromisoformat(config.market_creation_date)
+        except ValueError:
+            logger.warning(
+                "Invalid market_creation_date %r, falling back to static gamma",
+                config.market_creation_date,
+            )
+            return config.gamma
         age_days = (_date.today() - created).days
         if age_days <= 3:
             return GAMMA_TIERS["EARLY"]
