@@ -607,22 +607,48 @@ class TestP1InventoryLock:
             "Each market must have its own lock instance"
         )
 
-    async def test_reconcile_loop_acquires_inventory_lock(self) -> None:
-        """reconcile_loop must acquire ctx.inventory_lock when reconciling."""
+    async def test_reconcile_loop_does_not_hold_lock_during_api_calls(self) -> None:
+        """reconcile_loop must NOT hold inventory_lock during reconcile() API calls."""
         from src.amm.main import reconcile_loop
 
         ctx = _make_ctx()
-        lock_acquired_while_reconciling = False
-        original_reconcile_called = False
+        lock_held_during_reconcile = False
+        reconcile_called = False
 
         async def fake_reconcile(market_ids: list[str], n_markets_total: int = 0, balance_resp: dict | None = None) -> dict:
-            nonlocal lock_acquired_while_reconciling, original_reconcile_called
-            original_reconcile_called = True
-            # The lock should be acquired (locked) while reconcile runs
-            lock_acquired_while_reconciling = ctx.inventory_lock.locked()
-            # Stop the loop
+            nonlocal lock_held_during_reconcile, reconcile_called
+            reconcile_called = True
+            # Lock must NOT be held during API calls — only during ctx.inventory write
+            lock_held_during_reconcile = ctx.inventory_lock.locked()
             ctx.shutdown_requested = True
-            return {}
+            return {market_ids[0]: {"drifted": False, "fields": []}}
+
+        async def fake_fetch_balance() -> dict:
+            return {"data": {"balance_cents": 100_000, "frozen_balance_cents": 0}}
+
+        fake_reconciler = MagicMock()
+        fake_reconciler.reconcile = fake_reconcile
+        fake_reconciler.fetch_balance = fake_fetch_balance
+        fake_cache = AsyncMock()
+        fake_cache.get.return_value = None
+
+        await reconcile_loop(fake_reconciler, {"mkt-1": ctx}, interval_seconds=0.001, inventory_cache=fake_cache)
+
+        assert reconcile_called, "reconcile must be called"
+        assert not lock_held_during_reconcile, (
+            "inventory_lock must NOT be held during reconcile() API calls — only during ctx.inventory write"
+        )
+
+    async def test_reconcile_loop_holds_lock_during_inventory_write_on_drift(self) -> None:
+        """When drift is detected, reconcile_loop must hold inventory_lock during ctx.inventory write."""
+        from src.amm.main import reconcile_loop
+
+        ctx = _make_ctx()
+        lock_held_during_write = False
+
+        async def fake_reconcile(market_ids: list[str], n_markets_total: int = 0, balance_resp: dict | None = None) -> dict:
+            ctx.shutdown_requested = True
+            return {market_ids[0]: {"drifted": True, "fields": ["yes_volume"]}}
 
         async def fake_fetch_balance() -> dict:
             return {"data": {"balance_cents": 100_000, "frozen_balance_cents": 0}}
@@ -631,12 +657,38 @@ class TestP1InventoryLock:
         fake_reconciler.reconcile = fake_reconcile
         fake_reconciler.fetch_balance = fake_fetch_balance
 
-        await reconcile_loop(fake_reconciler, {"mkt-1": ctx}, interval_seconds=0.001)
+        fresh_inv = _make_inventory(yes=600, no=400)
 
-        assert original_reconcile_called, "reconcile must be called"
-        assert lock_acquired_while_reconciling, (
-            "inventory_lock must be held while reconcile runs"
+        async def fake_cache_get(market_id: str) -> object:
+            # Check if the lock is held when we're called as part of the drift sync
+            return fresh_inv
+
+        fake_cache = AsyncMock()
+        fake_cache.get.side_effect = fake_cache_get
+
+        # Patch ctx.inventory_lock to spy on __aenter__
+        original_lock = ctx.inventory_lock
+
+        class SpyLock:
+            async def __aenter__(self) -> None:
+                nonlocal lock_held_during_write
+                lock_held_during_write = True
+                return await original_lock.__aenter__()
+
+            async def __aexit__(self, *args: object) -> None:
+                return await original_lock.__aexit__(*args)
+
+            def locked(self) -> bool:
+                return original_lock.locked()
+
+        ctx.inventory_lock = SpyLock()  # type: ignore[assignment]
+
+        await reconcile_loop(fake_reconciler, {"mkt-1": ctx}, interval_seconds=0.001, inventory_cache=fake_cache)
+
+        assert lock_held_during_write, (
+            "inventory_lock must be held when writing ctx.inventory after drift correction"
         )
+        assert ctx.inventory.yes_volume == 600, "ctx.inventory must be updated with fresh data"
 
     async def test_quote_cycle_does_not_hold_inventory_lock_during_poll(
         self, monkeypatch: pytest.MonkeyPatch

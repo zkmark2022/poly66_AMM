@@ -23,7 +23,7 @@ class GracefulShutdown:
     async def execute(
         self,
         contexts: dict[str, MarketContext],
-        order_managers: "dict[str, OrderManager] | None" = None,
+        order_managers: dict[str, OrderManager] | None = None,
     ) -> None:
         """Cancel all orders across all markets and shutdown cleanly.
 
