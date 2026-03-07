@@ -138,7 +138,15 @@ async def _evaluate_oracle_state(
 
     # Fallback for partial adapters / test doubles lacking evaluate()
     check_stale = getattr(oracle, "check_stale", None)
-    if callable(check_stale) and check_stale():
+    if callable(check_stale):
+        stale_result = check_stale()
+        if inspect.isawaitable(stale_result):
+            stale_result = await stale_result
+        if stale_result:
+            return OracleState.STALE
+
+    check_lag = getattr(oracle, "check_lag", None)
+    if callable(check_lag) and check_lag(threshold_seconds=ctx.oracle_lag_threshold):
         return OracleState.STALE
 
     check_lvr = getattr(oracle, "check_lvr", None)

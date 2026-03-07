@@ -93,6 +93,24 @@ class TestPolymarketOracleRefresh:
             oracle.get_yes_price()
 
     @pytest.mark.asyncio
+    async def test_refresh_cancellation_kills_running_subprocess(self) -> None:
+        """Cancellation during refresh() must clean up the child process before bubbling up."""
+        oracle = PolymarketOracle(_make_config())
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = None
+        mock_proc.communicate = AsyncMock(side_effect=asyncio.CancelledError())
+        mock_proc.wait = AsyncMock()
+
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(asyncio.CancelledError):
+                await oracle.refresh()
+
+        mock_proc.kill.assert_called_once_with()
+        mock_proc.wait.assert_awaited_once_with()
+        assert oracle.check_stale() is True
+
+    @pytest.mark.asyncio
     async def test_refresh_rejects_missing_returncode_after_subprocess_completion(self) -> None:
         """A subprocess without a resolved return code should be treated as failed."""
         oracle = PolymarketOracle(_make_config())

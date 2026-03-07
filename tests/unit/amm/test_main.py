@@ -556,6 +556,34 @@ class TestAMMMain:
 
         assert state is OracleState.LVR
 
+    async def test_evaluate_oracle_state_awaits_async_check_stale(self) -> None:
+        ctx = _make_context()
+
+        class PartialOracle:
+            async def check_stale(self) -> bool:
+                return False
+
+            def check_lvr(self) -> bool:
+                return False
+
+            def check_deviation(self, internal_price_cents: float, threshold: float | None = None) -> bool:
+                return False
+
+        state = await _evaluate_oracle_state(PartialOracle(), ctx, internal_price_cents=51.0)
+
+        assert state is OracleState.NORMAL
+
+    async def test_evaluate_oracle_state_falls_back_to_check_lag(self) -> None:
+        ctx = _make_context()
+
+        class PartialOracle:
+            def check_lag(self, threshold_seconds: float = 3.0) -> bool:
+                return threshold_seconds == ctx.oracle_lag_threshold
+
+        state = await _evaluate_oracle_state(PartialOracle(), ctx, internal_price_cents=51.0)
+
+        assert state is OracleState.STALE
+
     async def test_evaluate_oracle_state_fallback_forwards_deviation_threshold(self) -> None:
         ctx = _make_context()
         ctx.oracle_deviation_threshold = 17.0
