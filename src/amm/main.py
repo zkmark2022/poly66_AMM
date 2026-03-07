@@ -125,7 +125,7 @@ async def _refresh_oracle(oracle: PolymarketOracle) -> None:
 
 
 async def _evaluate_oracle_state(
-    oracle: PolymarketOracle,
+    oracle: Any,
     ctx: MarketContext,
     internal_price_cents: float,
 ) -> OracleState:
@@ -163,26 +163,7 @@ async def _evaluate_oracle_state(
 
     check_deviation = getattr(oracle, "check_deviation", None)
     if callable(check_deviation):
-        supports_threshold = False
-        try:
-            deviation_signature = inspect.signature(check_deviation)
-            supports_threshold = (
-                "threshold" in deviation_signature.parameters
-                or any(
-                    parameter.kind == inspect.Parameter.VAR_KEYWORD
-                    for parameter in deviation_signature.parameters.values()
-                )
-            )
-        except (TypeError, ValueError):
-            supports_threshold = False
-
-        if supports_threshold:
-            dev_result = check_deviation(
-                internal_price_cents,
-                threshold=ctx.oracle_deviation_threshold,
-            )
-        else:
-            dev_result = check_deviation(internal_price_cents)
+        dev_result = check_deviation(internal_price_cents)
         if inspect.isawaitable(dev_result):
             dev_result = await dev_result
         if dev_result:

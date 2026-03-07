@@ -616,10 +616,9 @@ class TestAMMMain:
         assert state is OracleState.STALE
         assert not [warning for warning in recwarn if warning.category is RuntimeWarning]
 
-    async def test_evaluate_oracle_state_fallback_forwards_deviation_threshold(self) -> None:
+    async def test_evaluate_oracle_state_fallback_uses_unified_deviation_signature(self) -> None:
         ctx = _make_context()
-        ctx.oracle_deviation_threshold = 17.0
-        observed_calls: list[tuple[float, float | None]] = []
+        observed_calls: list[float] = []
 
         class PartialOracle:
             def check_stale(self) -> bool:
@@ -628,11 +627,11 @@ class TestAMMMain:
             def check_lvr(self) -> bool:
                 return False
 
-            def check_deviation(self, internal_price_cents: float, threshold: float | None = None) -> bool:
-                observed_calls.append((internal_price_cents, threshold))
-                return threshold == 17.0 and internal_price_cents == 51.0
+            def check_deviation(self, internal_price_cents: float) -> bool:
+                observed_calls.append(internal_price_cents)
+                return internal_price_cents == 51.0
 
         state = await _evaluate_oracle_state(PartialOracle(), ctx, internal_price_cents=51.0)
 
-        assert observed_calls == [(51.0, 17.0)]
+        assert observed_calls == [51.0]
         assert state is OracleState.DEVIATION

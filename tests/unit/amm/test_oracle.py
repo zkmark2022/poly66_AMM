@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.amm.oracle.polymarket import PolymarketOracle as LegacyPolymarketOracle
 from src.amm.config.models import MarketConfig
 from src.amm.oracle.polymarket_oracle import PolymarketOracle
 
@@ -58,9 +58,9 @@ class TestPolymarketOracleRefresh:
 
         assert oracle.check_stale() is True
 
-    def test_legacy_import_path_reexports_unified_oracle(self) -> None:
-        """Older imports should keep resolving to the unified oracle implementation."""
-        assert LegacyPolymarketOracle is PolymarketOracle
+    def test_legacy_import_path_is_removed(self) -> None:
+        """The deprecated shim path should be gone once the unified oracle lands."""
+        assert importlib.util.find_spec("src.amm.oracle.polymarket") is None
 
     @pytest.mark.asyncio
     async def test_refresh_raises_when_outcome_prices_missing(self) -> None:
