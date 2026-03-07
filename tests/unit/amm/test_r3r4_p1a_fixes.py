@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.amm.config.models import MarketConfig
+from src.amm.connector.order_manager import ActiveOrder, OrderManager
 from src.amm.lifecycle.shutdown import GracefulShutdown
 from src.amm.models.enums import DefenseLevel, Phase, QuoteAction
 from src.amm.models.inventory import Inventory
@@ -852,3 +853,309 @@ class TestP1GracefulShutdownViaOrderManager:
 
         order_mgr_2.cancel_all.assert_called_once_with("mkt-2")
         api.close.assert_called_once()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# R3/R4 Round-2 fixes: inventory_lock snapshot, winding_down recovery,
+# load_from_cache atomicity
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── Bug-1: quote_cycle must use inventory snapshot under lock ────────────────
+
+
+class TestInventorySnapshotInQuoteCycle:
+    """quote_cycle must take a local inventory snapshot under inventory_lock
+    so that reconcile_loop replacing ctx.inventory mid-cycle doesn't corrupt
+    skew/PnL/cash reads."""
+
+    async def test_quote_cycle_uses_snapshot_not_live_ctx_inventory(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from src.amm.main import quote_cycle
+
+        ctx = _make_ctx()
+        original_inventory = ctx.inventory
+
+        observed_skews: list[float] = []
+
+        api = AsyncMock()
+        api.get_orderbook.return_value = {
+            "data": {"best_bid": 45, "best_ask": 55, "bid_depth": 10, "ask_depth": 10},
+        }
+        api.get_market_status.return_value = "active"
+        poller = AsyncMock()
+        poller.poll.return_value = []
+        inventory_cache = AsyncMock()
+        inventory_cache.get.return_value = original_inventory
+
+        pricing = MagicMock()
+        pricing.compute.return_value = 50
+
+        as_engine = MagicMock()
+        as_engine.bernoulli_sigma.return_value = 0.05
+        as_engine.get_gamma_for_age.return_value = 0.1
+
+        def fake_compute_quotes(
+            *, mid_price: int, inventory_skew: float, **kwargs: object,
+        ) -> tuple[int, int]:
+            observed_skews.append(inventory_skew)
+            # Simulate reconcile_loop replacing ctx.inventory mid-cycle
+            ctx.inventory = Inventory(
+                cash_cents=999_999, yes_volume=999, no_volume=1,
+                yes_cost_sum_cents=0, no_cost_sum_cents=0,
+                yes_pending_sell=0, no_pending_sell=0, frozen_balance_cents=0,
+            )
+            return 55, 45
+
+        as_engine.compute_quotes.side_effect = fake_compute_quotes
+
+        gradient = MagicMock()
+        gradient.build_ask_ladder.return_value = []
+        gradient.build_bid_ladder.return_value = []
+
+        risk = MagicMock()
+        risk.evaluate.return_value = DefenseLevel.NORMAL
+
+        sanitizer = MagicMock()
+        sanitizer.sanitize.return_value = []
+
+        order_mgr = AsyncMock()
+        order_mgr.execute_intents = AsyncMock()
+
+        ctx.market_status_checked_at = time.monotonic()
+        ctx.last_known_market_active = True
+
+        await quote_cycle(
+            ctx, api, poller, pricing, as_engine, gradient,
+            risk, sanitizer, order_mgr, inventory_cache,
+        )
+
+        # The skew used must be from the original inventory snapshot
+        assert observed_skews[0] == original_inventory.inventory_skew
+
+    async def test_session_pnl_uses_snapshot_inventory(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """session_pnl_cents must be computed from the snapshot, not a
+        potentially-replaced ctx.inventory."""
+        from src.amm.main import quote_cycle
+
+        ctx = _make_ctx()
+        ctx.initial_inventory_value_cents = ctx.inventory.total_value_cents(50)
+
+        api = AsyncMock()
+        api.get_orderbook.return_value = {
+            "data": {"best_bid": 45, "best_ask": 55, "bid_depth": 10, "ask_depth": 10},
+        }
+        api.get_market_status.return_value = "active"
+        poller = AsyncMock()
+        poller.poll.return_value = []
+        inventory_cache = AsyncMock()
+        inventory_cache.get.return_value = ctx.inventory
+
+        pricing = MagicMock()
+        pricing.compute.return_value = 50
+
+        as_engine = MagicMock()
+        as_engine.bernoulli_sigma.return_value = 0.05
+        as_engine.get_gamma_for_age.return_value = 0.1
+        as_engine.compute_quotes.return_value = (55, 45)
+
+        gradient = MagicMock()
+        gradient.build_ask_ladder.return_value = []
+        gradient.build_bid_ladder.return_value = []
+
+        risk = MagicMock()
+        risk.evaluate.return_value = DefenseLevel.NORMAL
+
+        sanitizer = MagicMock()
+        sanitizer.sanitize.return_value = []
+
+        order_mgr = AsyncMock()
+
+        ctx.market_status_checked_at = time.monotonic()
+        ctx.last_known_market_active = True
+
+        await quote_cycle(
+            ctx, api, poller, pricing, as_engine, gradient,
+            risk, sanitizer, order_mgr, inventory_cache,
+        )
+
+        # PnL should be 0 (same inventory, same mid)
+        assert ctx.session_pnl_cents == 0
+
+
+# ─── Bug-2: winding_down recovery on handle_winding_down failure ─────────────
+
+
+class TestWindingDownRecovery:
+    """If handle_winding_down raises, winding_down must NOT be permanently
+    set — next cycle should retry."""
+
+    async def test_winding_down_not_set_when_handle_winding_down_raises(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from src.amm.main import quote_cycle
+
+        ctx = _make_ctx()
+        ctx.market_status_checked_at = 0.0  # force TTL check
+
+        api = AsyncMock()
+        api.get_orderbook.return_value = {
+            "data": {"best_bid": 45, "best_ask": 55, "bid_depth": 10, "ask_depth": 10},
+        }
+        api.get_market_status.return_value = "resolved"
+
+        poller = AsyncMock()
+        poller.poll.return_value = []
+        inventory_cache = AsyncMock()
+        inventory_cache.get.return_value = ctx.inventory
+
+        pricing = MagicMock()
+        pricing.compute.return_value = 50
+        as_engine = MagicMock()
+        as_engine.bernoulli_sigma.return_value = 0.05
+        as_engine.get_gamma_for_age.return_value = 0.1
+        as_engine.compute_quotes.return_value = (55, 45)
+        gradient = MagicMock()
+        gradient.build_ask_ladder.return_value = []
+        gradient.build_bid_ladder.return_value = []
+        risk = MagicMock()
+        sanitizer = MagicMock()
+        order_mgr = AsyncMock()
+
+        monkeypatch.setattr(
+            "src.amm.main.handle_winding_down",
+            AsyncMock(side_effect=RuntimeError("API down")),
+        )
+
+        await quote_cycle(
+            ctx, api, poller, pricing, as_engine, gradient,
+            risk, sanitizer, order_mgr, inventory_cache,
+        )
+
+        # winding_down must NOT be stuck True after a failure
+        assert ctx.winding_down is False
+        # market_status_checked_at should be reset so next cycle retries
+        assert ctx.market_status_checked_at == 0.0
+
+    async def test_winding_down_set_on_success(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from src.amm.main import quote_cycle
+
+        ctx = _make_ctx()
+        ctx.market_status_checked_at = 0.0
+
+        api = AsyncMock()
+        api.get_orderbook.return_value = {
+            "data": {"best_bid": 45, "best_ask": 55, "bid_depth": 10, "ask_depth": 10},
+        }
+        api.get_market_status.return_value = "settled"
+
+        poller = AsyncMock()
+        poller.poll.return_value = []
+        inventory_cache = AsyncMock()
+        inventory_cache.get.return_value = ctx.inventory
+
+        pricing = MagicMock()
+        pricing.compute.return_value = 50
+        as_engine = MagicMock()
+        as_engine.bernoulli_sigma.return_value = 0.05
+        as_engine.get_gamma_for_age.return_value = 0.1
+        as_engine.compute_quotes.return_value = (55, 45)
+        gradient = MagicMock()
+        gradient.build_ask_ladder.return_value = []
+        gradient.build_bid_ladder.return_value = []
+        risk = MagicMock()
+        sanitizer = MagicMock()
+        order_mgr = AsyncMock()
+
+        async def fake_handle_winding_down(
+            ctx_: MarketContext, *args: object, **kwargs: object,
+        ) -> int:
+            # Real handle_winding_down sets ctx.winding_down = True internally
+            ctx_.winding_down = True
+            return 5
+
+        monkeypatch.setattr(
+            "src.amm.main.handle_winding_down", fake_handle_winding_down,
+        )
+
+        await quote_cycle(
+            ctx, api, poller, pricing, as_engine, gradient,
+            risk, sanitizer, order_mgr, inventory_cache,
+        )
+
+        # handle_winding_down itself sets ctx.winding_down = True
+        assert ctx.winding_down is True
+
+
+# ─── Bug-3: load_from_cache atomicity ────────────────────────────────────────
+
+
+class TestLoadFromCacheAtomic:
+    """load_from_cache must not leave partial state on failure."""
+
+    async def test_load_from_cache_partial_failure_leaves_empty(self) -> None:
+        api = AsyncMock()
+        cache = AsyncMock()
+        order_cache = AsyncMock()
+        order_cache.get_all_orders.side_effect = ConnectionError("Redis gone")
+
+        mgr = OrderManager(api=api, cache=cache, order_cache=order_cache)
+        mgr.active_orders = {}
+
+        with pytest.raises(ConnectionError):
+            await mgr.load_from_cache("mkt-1")
+
+        assert mgr.active_orders == {}
+
+    async def test_load_from_cache_success_replaces_atomically(self) -> None:
+        api = AsyncMock()
+        cache = AsyncMock()
+        cache.set_pending_sell = AsyncMock()
+        order_cache = AsyncMock()
+        order_cache.get_all_orders.return_value = {
+            "order-1": {
+                "side": "YES", "direction": "SELL",
+                "price_cents": 55, "remaining_quantity": 10,
+            },
+            "order-2": {
+                "side": "NO", "direction": "SELL",
+                "price_cents": 45, "remaining_quantity": 5,
+            },
+        }
+
+        mgr = OrderManager(api=api, cache=cache, order_cache=order_cache)
+        # Pre-populate stale data
+        mgr.active_orders = {
+            "stale-id": ActiveOrder("stale-id", "YES", "SELL", 60, 20),
+        }
+
+        await mgr.load_from_cache("mkt-1")
+
+        # Stale data gone, only new data present
+        assert "stale-id" not in mgr.active_orders
+        assert "order-1" in mgr.active_orders
+        assert "order-2" in mgr.active_orders
+
+    async def test_load_from_cache_preserves_existing_on_get_failure(self) -> None:
+        """If get_all_orders raises, active_orders is untouched (no partial write).
+        The caller (amm_main) is responsible for clearing it."""
+        api = AsyncMock()
+        cache = AsyncMock()
+        order_cache = AsyncMock()
+        order_cache.get_all_orders.side_effect = ConnectionError("Redis gone")
+
+        mgr = OrderManager(api=api, cache=cache, order_cache=order_cache)
+        mgr.active_orders = {
+            "pre-existing": ActiveOrder("pre-existing", "YES", "SELL", 50, 10),
+        }
+
+        with pytest.raises(ConnectionError):
+            await mgr.load_from_cache("mkt-1")
+
+        # load_from_cache failed before reaching the atomic replace,
+        # so existing state is preserved (not corrupted with partial data).
+        assert "pre-existing" in mgr.active_orders

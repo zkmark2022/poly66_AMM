@@ -224,18 +224,25 @@ class OrderManager:
             await self._order_cache.clear(market_id)
 
     async def load_from_cache(self, market_id: str) -> None:
-        """Restore active_orders from Redis after restart."""
+        """Restore active_orders from Redis after restart.
+
+        Builds into a temporary dict first so that on any exception
+        active_orders is left empty rather than in a half-populated state.
+        """
         if self._order_cache is None:
             return
         orders = await self._order_cache.get_all_orders(market_id)
+        tmp: dict[str, ActiveOrder] = {}
         for order_id, order_data in orders.items():
-            self.active_orders[order_id] = ActiveOrder(
+            tmp[order_id] = ActiveOrder(
                 order_id=order_id,
                 side=order_data["side"],
                 direction=order_data["direction"],
                 price_cents=order_data["price_cents"],
                 remaining_quantity=order_data["remaining_quantity"],
             )
+        # Atomic replace — no partial state on success or failure above.
+        self.active_orders = tmp
         # Only overwrite Redis pending-sell counters when we actually restored
         # orders; an empty cache would zero out valid InventoryCache state.
         if self.active_orders:

@@ -203,6 +203,10 @@ async def quote_cycle(
         fresh = await inventory_cache.get(ctx.market_id)
         if fresh is not None:
             ctx.inventory = fresh
+        # Snapshot under lock — use inv (not ctx.inventory) for all reads
+        # this cycle, so a concurrent reconcile_loop replacing ctx.inventory
+        # at an await point cannot cause inconsistent skew/PnL/cash reads.
+        inv = ctx.inventory
     if ctx.phase == Phase.STABILIZATION:
         await maybe_auto_reinvest(ctx, api, inventory_cache=inventory_cache)
 
@@ -243,7 +247,7 @@ async def quote_cycle(
 
     ask, bid = as_engine.compute_quotes(
         mid_price=mid,
-        inventory_skew=ctx.inventory.inventory_skew,
+        inventory_skew=inv.inventory_skew,
         gamma=gamma,
         sigma=sigma,
         tau_hours=tau,
@@ -257,7 +261,7 @@ async def quote_cycle(
     bid_ladder = gradient.build_bid_ladder(bid, ctx.config, base_qty)
 
     # Step 2.5: Update session P&L — must happen before risk evaluation
-    ctx.session_pnl_cents = ctx.inventory.total_value_cents(mid) - ctx.initial_inventory_value_cents
+    ctx.session_pnl_cents = inv.total_value_cents(mid) - ctx.initial_inventory_value_cents
 
     # Step 3: Risk — oracle check then defense evaluation
     oracle_defense = DefenseLevel.NORMAL
@@ -284,7 +288,6 @@ async def quote_cycle(
             ctx.last_known_market_active = status_lower in {"active", "open"}
             ctx.market_status_checked_at = now
             if status_lower in {"resolved", "settled", "voided"}:
-                ctx.winding_down = True
                 _terminal_status = status_lower.upper()
         except Exception:
             logger.warning(
@@ -292,12 +295,21 @@ async def quote_cycle(
                 ctx.market_id, ctx.last_known_market_active,
             )
     if _terminal_status is not None:
-        await handle_winding_down(ctx, api, _terminal_status, order_mgr)
+        try:
+            await handle_winding_down(ctx, api, _terminal_status, order_mgr)
+        except Exception as exc:
+            logger.error(
+                "handle_winding_down failed for %s: %s — will retry next cycle",
+                ctx.market_id, exc,
+            )
+            # Undo: let next cycle re-detect the terminal status and retry.
+            ctx.winding_down = False
+            ctx.market_status_checked_at = 0.0
         return
     market_is_active = ctx.last_known_market_active
 
     risk_defense = risk.evaluate(
-        inventory_skew=ctx.inventory.inventory_skew,
+        inventory_skew=inv.inventory_skew,
         daily_pnl=ctx.session_pnl_cents,
         market_active=market_is_active,
     )
@@ -322,7 +334,7 @@ async def quote_cycle(
     bid_ladder = gradient.build_bid_ladder(bid, ctx.config, base_qty)
 
     intents = sanitizer.sanitize(ask_ladder + bid_ladder, defense, ctx)
-    intents = drop_buy_side_intents_when_cash_depleted(intents, ctx.inventory.cash_cents)
+    intents = drop_buy_side_intents_when_cash_depleted(intents, inv.cash_cents)
 
     # Step 4: Execute — send order diff to API
     await order_mgr.execute_intents(intents, ctx.market_id)
@@ -525,6 +537,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
                 "Could not restore orders from cache for %s (starting fresh): %s",
                 ctx.market_id, _load_err,
             )
+            order_mgr.active_orders = {}
         market_order_managers[ctx.market_id] = order_mgr
         phase_mgr = PhaseManager(config=ctx.config)
         market_oracle = market_oracles[ctx.market_id]
