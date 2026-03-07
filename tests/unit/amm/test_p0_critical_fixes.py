@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -61,23 +61,25 @@ class TestOracleDeadlock:
         oracle = PolymarketOracle(cfg)
         assert oracle.check_stale() is True
 
-    def test_oracle_check_stale_false_after_refresh(self) -> None:
+    @pytest.mark.asyncio
+    async def test_oracle_check_stale_false_after_refresh(self) -> None:
         """After refresh(), check_stale() is False (within threshold)."""
         cfg = _make_config(oracle_stale_seconds=10.0)
         oracle = PolymarketOracle(cfg)
 
-        with patch.object(oracle, "_fetch_price", return_value=52.0):
-            oracle.refresh()
+        with patch.object(oracle, "_fetch_price", new=AsyncMock(return_value=52.0)):
+            await oracle.refresh()
 
         assert oracle.check_stale() is False
 
-    def test_oracle_evaluate_returns_normal_after_refresh(self) -> None:
+    @pytest.mark.asyncio
+    async def test_oracle_evaluate_returns_normal_after_refresh(self) -> None:
         """evaluate() must return NORMAL (not STALE) once refresh() has been called."""
         cfg = _make_config(oracle_stale_seconds=10.0, oracle_deviation_cents=20.0)
         oracle = PolymarketOracle(cfg)
 
-        with patch.object(oracle, "_fetch_price", return_value=50.0):
-            oracle.refresh()
+        with patch.object(oracle, "_fetch_price", new=AsyncMock(return_value=50.0)):
+            await oracle.refresh()
 
         state = oracle.evaluate(internal_price_cents=50.0)
         assert state == OracleState.NORMAL, (

@@ -6,8 +6,9 @@ T8.3 — Oracle deviation: |internal - external| >20¢ → DEVIATION → AMM_PAU
 """
 from __future__ import annotations
 
+import asyncio
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -36,13 +37,23 @@ def _oracle(
     return PolymarketOracle(cfg)
 
 
-def _cli_ok(yes_price_cents: float) -> MagicMock:
-    """Mock subprocess.CompletedProcess returning yes price."""
-    m = MagicMock()
-    m.returncode = 0
+def _proc_ok(yes_price_cents: float) -> MagicMock:
+    """Mock async subprocess returning yes price."""
+    proc = MagicMock()
+    proc.returncode = 0
     no_price = 1.0 - yes_price_cents / 100.0
-    m.stdout = json.dumps({"outcomePrices": [str(yes_price_cents / 100.0), str(no_price)]})
-    return m
+    proc.communicate = AsyncMock(return_value=(
+        json.dumps({"outcomePrices": [str(yes_price_cents / 100.0), str(no_price)]}).encode(),
+        b"",
+    ))
+    return proc
+
+
+def _proc_error(message: str) -> MagicMock:
+    proc = MagicMock()
+    proc.returncode = 1
+    proc.communicate = AsyncMock(return_value=(b"", message.encode()))
+    return proc
 
 
 # ---------------------------------------------------------------------------
@@ -52,53 +63,56 @@ def _cli_ok(yes_price_cents: float) -> MagicMock:
 class TestT81LVRRapidLoss:
     """T8.1: Price drops >20% within 500ms window → OracleState.LVR → KILL_SWITCH."""
 
-    def test_rapid_price_drop_triggers_lvr(self) -> None:
+    @pytest.mark.asyncio
+    async def test_rapid_price_drop_triggers_lvr(self) -> None:
         """60¢ drops to 45¢ (25% drop) within 400ms → LVR state."""
         oracle = _oracle(lvr_window_seconds=0.5, lvr_threshold=0.20)
         t0 = 1000.0
 
-        with patch("src.amm.oracle.polymarket_oracle.subprocess.run") as mock_run:
-            mock_run.return_value = _cli_ok(60.0)
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.return_value = _proc_ok(60.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
-                oracle.refresh()
+                await oracle.refresh()
 
-            mock_run.return_value = _cli_ok(45.0)
+            mock_exec.return_value = _proc_ok(45.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0 + 0.4):
-                oracle.refresh()
+                await oracle.refresh()
                 state = oracle.evaluate(internal_price_cents=55.0)
 
         assert state == OracleState.LVR
 
-    def test_slow_price_drop_outside_window_stays_normal(self) -> None:
+    @pytest.mark.asyncio
+    async def test_slow_price_drop_outside_window_stays_normal(self) -> None:
         """25% price drop but over 1.0s (outside 500ms window) → NORMAL."""
         oracle = _oracle(lvr_window_seconds=0.5, lvr_threshold=0.20)
         t0 = 1000.0
 
-        with patch("src.amm.oracle.polymarket_oracle.subprocess.run") as mock_run:
-            mock_run.return_value = _cli_ok(60.0)
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.return_value = _proc_ok(60.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
-                oracle.refresh()
+                await oracle.refresh()
 
-            mock_run.return_value = _cli_ok(45.0)
+            mock_exec.return_value = _proc_ok(45.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0 + 1.0):
-                oracle.refresh()
+                await oracle.refresh()
                 state = oracle.evaluate(internal_price_cents=55.0)
 
         assert state == OracleState.NORMAL
 
-    def test_small_price_move_within_window_stays_normal(self) -> None:
+    @pytest.mark.asyncio
+    async def test_small_price_move_within_window_stays_normal(self) -> None:
         """5% price drop within 400ms — below 20% threshold → NORMAL."""
         oracle = _oracle(lvr_window_seconds=0.5, lvr_threshold=0.20)
         t0 = 1000.0
 
-        with patch("src.amm.oracle.polymarket_oracle.subprocess.run") as mock_run:
-            mock_run.return_value = _cli_ok(60.0)
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.return_value = _proc_ok(60.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
-                oracle.refresh()
+                await oracle.refresh()
 
-            mock_run.return_value = _cli_ok(57.0)
+            mock_exec.return_value = _proc_ok(57.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0 + 0.4):
-                oracle.refresh()
+                await oracle.refresh()
                 state = oracle.evaluate(internal_price_cents=58.0)
 
         assert state == OracleState.NORMAL
@@ -115,15 +129,16 @@ class TestT81LVRRapidLoss:
 class TestT82OracleStale:
     """T8.2: No price refresh for >3s → OracleState.STALE → PASSIVE_MODE (ONE_SIDE)."""
 
-    def test_stale_price_detected_after_threshold(self) -> None:
+    @pytest.mark.asyncio
+    async def test_stale_price_detected_after_threshold(self) -> None:
         """Refreshed at t0, checked at t0+4s (>3s threshold) → check_stale() True → STALE."""
         oracle = _oracle(stale_seconds=3.0)
         t0 = 1000.0
 
-        with patch("src.amm.oracle.polymarket_oracle.subprocess.run") as mock_run:
-            mock_run.return_value = _cli_ok(50.0)
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.return_value = _proc_ok(50.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
-                oracle.refresh()
+                await oracle.refresh()
 
         with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0 + 4.0):
             assert oracle.check_stale() is True
@@ -131,15 +146,16 @@ class TestT82OracleStale:
 
         assert state == OracleState.STALE
 
-    def test_fresh_price_not_stale(self) -> None:
+    @pytest.mark.asyncio
+    async def test_fresh_price_not_stale(self) -> None:
         """Refreshed 1s ago (< 3s threshold) → check_stale() False → NORMAL."""
         oracle = _oracle(stale_seconds=3.0)
         t0 = 1000.0
 
-        with patch("src.amm.oracle.polymarket_oracle.subprocess.run") as mock_run:
-            mock_run.return_value = _cli_ok(50.0)
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.return_value = _proc_ok(50.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
-                oracle.refresh()
+                await oracle.refresh()
 
         with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0 + 1.0):
             assert oracle.check_stale() is False
@@ -164,49 +180,52 @@ class TestT82OracleStale:
 class TestT83OracleDeviation:
     """T8.3: |internal - external| >20¢ → DEVIATION → AMM_PAUSE; auto-recovers when resolved."""
 
-    def test_deviation_exceeds_threshold_triggers_pause(self) -> None:
+    @pytest.mark.asyncio
+    async def test_deviation_exceeds_threshold_triggers_pause(self) -> None:
         """Internal=50¢, Oracle=75¢, deviation=25¢ > 20¢ → DEVIATION."""
         oracle = _oracle(deviation_cents=20.0)
         t0 = 1000.0
 
-        with patch("src.amm.oracle.polymarket_oracle.subprocess.run") as mock_run:
-            mock_run.return_value = _cli_ok(75.0)
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.return_value = _proc_ok(75.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
-                oracle.refresh()
+                await oracle.refresh()
                 state = oracle.evaluate(internal_price_cents=50.0)
 
         assert state == OracleState.DEVIATION
 
-    def test_deviation_within_threshold_stays_normal(self) -> None:
+    @pytest.mark.asyncio
+    async def test_deviation_within_threshold_stays_normal(self) -> None:
         """Internal=50¢, Oracle=65¢, deviation=15¢ < 20¢ → NORMAL."""
         oracle = _oracle(deviation_cents=20.0)
         t0 = 1000.0
 
-        with patch("src.amm.oracle.polymarket_oracle.subprocess.run") as mock_run:
-            mock_run.return_value = _cli_ok(65.0)
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.return_value = _proc_ok(65.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
-                oracle.refresh()
+                await oracle.refresh()
                 state = oracle.evaluate(internal_price_cents=50.0)
 
         assert state == OracleState.NORMAL
 
-    def test_auto_recovery_after_deviation_resolved(self) -> None:
+    @pytest.mark.asyncio
+    async def test_auto_recovery_after_deviation_resolved(self) -> None:
         """Deviation → DEVIATION, then oracle converges → NORMAL (stateless: no sticky pause)."""
         oracle = _oracle(deviation_cents=20.0)
         t0 = 1000.0
 
-        with patch("src.amm.oracle.polymarket_oracle.subprocess.run") as mock_run:
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
             # Phase 1: large deviation → AMM_PAUSE
-            mock_run.return_value = _cli_ok(80.0)
+            mock_exec.return_value = _proc_ok(80.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
-                oracle.refresh()
+                await oracle.refresh()
                 state = oracle.evaluate(internal_price_cents=50.0)
             assert state == OracleState.DEVIATION
 
             # Phase 2: oracle recovers, prices converge
-            mock_run.return_value = _cli_ok(55.0)
+            mock_exec.return_value = _proc_ok(55.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0 + 5.0):
-                oracle.refresh()
+                await oracle.refresh()
                 state = oracle.evaluate(internal_price_cents=50.0)
         assert state == OracleState.NORMAL
 
@@ -222,47 +241,56 @@ class TestT83OracleDeviation:
 class TestOracleCLI:
     """Unit tests for CLI invocation and price parsing."""
 
-    def test_get_yes_price_parses_outcome_prices(self) -> None:
+    @pytest.mark.asyncio
+    async def test_get_yes_price_parses_outcome_prices(self) -> None:
         """get_yes_price() returns 52.0 when CLI outputs outcomePrices=['0.52', '0.48']."""
         oracle = _oracle()
         t0 = 1000.0
 
-        with patch("src.amm.oracle.polymarket_oracle.subprocess.run") as mock_run:
-            mock_run.return_value = _cli_ok(52.0)
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.return_value = _proc_ok(52.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=t0):
-                oracle.refresh()
+                await oracle.refresh()
                 price = oracle.get_yes_price()
 
         assert price == pytest.approx(52.0)
 
-    def test_refresh_calls_correct_polymarket_command(self) -> None:
-        """refresh() invokes: /opt/homebrew/bin/polymarket -o json markets get <slug>."""
+    @pytest.mark.asyncio
+    async def test_refresh_calls_correct_polymarket_command(self) -> None:
+        """refresh() invokes the polymarket CLI with json output enabled."""
         oracle = _oracle(slug="my-test-slug")
 
-        with patch("src.amm.oracle.polymarket_oracle.subprocess.run") as mock_run:
-            mock_run.return_value = _cli_ok(50.0)
+        with patch("src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec") as mock_exec:
+            mock_exec.return_value = _proc_ok(50.0)
             with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=1000.0):
-                oracle.refresh()
+                await oracle.refresh()
 
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
-        assert cmd == [
-            "/opt/homebrew/bin/polymarket", "-o", "json", "markets", "get", "my-test-slug"
-        ]
+        mock_exec.assert_called_once_with(
+            "/opt/homebrew/bin/polymarket",
+            "-o",
+            "json",
+            "markets",
+            "get",
+            "my-test-slug",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
 
-    def test_cli_non_zero_exit_raises_runtime_error(self) -> None:
-        """CLI exit code != 0 → refresh() raises RuntimeError."""
+    @pytest.mark.asyncio
+    async def test_cli_non_zero_exit_keeps_oracle_stale(self) -> None:
+        """CLI failures must not be recorded as a healthy neutral sample."""
         oracle = _oracle()
 
-        with patch("src.amm.oracle.polymarket_oracle.subprocess.run") as mock_run:
-            err = MagicMock()
-            err.returncode = 1
-            err.stderr = "market not found"
-            mock_run.return_value = err
-
-            with pytest.raises(RuntimeError, match="Polymarket CLI error"):
-                with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=1000.0):
-                    oracle.refresh()
+        with patch(
+            "src.amm.oracle.polymarket_oracle.asyncio.create_subprocess_exec",
+            return_value=_proc_error("market not found"),
+        ):
+            with patch("src.amm.oracle.polymarket_oracle.time.monotonic", return_value=1000.0):
+                with pytest.raises(RuntimeError, match="market not found"):
+                    await oracle.refresh()
+        assert oracle.check_stale() is True
+        with pytest.raises(RuntimeError, match="No price data"):
+            oracle.get_yes_price()
 
     def test_get_yes_price_before_refresh_raises(self) -> None:
         """get_yes_price() before any refresh() raises RuntimeError (no data)."""

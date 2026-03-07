@@ -36,8 +36,7 @@ from src.amm.strategy.phase_manager import PhaseManager
 from src.amm.strategy.pricing.anchor import AnchorPricing
 from src.amm.strategy.pricing.micro import MicroPricing
 from src.amm.strategy.pricing.posterior import PosteriorPricing
-from src.amm.oracle.polymarket import PolymarketOracle
-from src.amm.oracle.polymarket_oracle import OracleState
+from src.amm.oracle.polymarket_oracle import OracleState, PolymarketOracle
 from src.amm.strategy.pricing.three_layer import ThreeLayerPricing
 
 logger = logging.getLogger(__name__)
@@ -126,7 +125,7 @@ async def _refresh_oracle(oracle: PolymarketOracle) -> None:
 
 
 async def _evaluate_oracle_state(
-    oracle: PolymarketOracle,
+    oracle: Any,
     ctx: MarketContext,
     internal_price_cents: float,
 ) -> OracleState:
@@ -134,29 +133,41 @@ async def _evaluate_oracle_state(
     if callable(evaluate):
         result = evaluate(internal_price_cents=internal_price_cents)
         if inspect.isawaitable(result):
-            return await result
-        return result
+            return cast(OracleState, await result)
+        return cast(OracleState, result)
 
+    # Fallback for partial adapters / test doubles lacking evaluate()
     check_stale = getattr(oracle, "check_stale", None)
     if callable(check_stale):
-        if check_stale():
+        stale_result = check_stale()
+        if inspect.isawaitable(stale_result):
+            stale_result = await stale_result
+        if stale_result:
             return OracleState.STALE
-        check_lvr = getattr(oracle, "check_lvr", None)
-        if callable(check_lvr) and check_lvr():
-            return OracleState.LVR
-        deviation = oracle.check_deviation(internal_price_cents)
     else:
-        if oracle.check_lag(threshold_seconds=ctx.oracle_lag_threshold):
-            return OracleState.STALE
-        deviation = oracle.check_deviation(
-            internal_price_cents,
-            threshold=ctx.oracle_deviation_threshold,
-        )
+        check_lag = getattr(oracle, "check_lag", None)
+        if callable(check_lag):
+            lag_result = check_lag(threshold_seconds=ctx.oracle_lag_threshold)
+            if inspect.isawaitable(lag_result):
+                lag_result = await lag_result
+            if lag_result:
+                return OracleState.STALE
 
-    if inspect.isawaitable(deviation):
-        deviation = await deviation
-    if deviation:
-        return OracleState.DEVIATION
+    check_lvr = getattr(oracle, "check_lvr", None)
+    if callable(check_lvr):
+        lvr_result = check_lvr()
+        if inspect.isawaitable(lvr_result):
+            lvr_result = await lvr_result
+        if lvr_result:
+            return OracleState.LVR
+
+    check_deviation = getattr(oracle, "check_deviation", None)
+    if callable(check_deviation):
+        dev_result = check_deviation(internal_price_cents)
+        if inspect.isawaitable(dev_result):
+            dev_result = await dev_result
+        if dev_result:
+            return OracleState.DEVIATION
 
     return OracleState.NORMAL
 
@@ -387,21 +398,6 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, _signal_handler)
 
-    # Build per-market oracles — each market gets its own oracle instance
-    # so different oracle_slug configs don't pollute each other.
-    market_oracles: dict[str, PolymarketOracle | None] = {}
-    for mid, ctx in contexts.items():
-        if ctx.config.oracle_slug:
-            market_oracle = PolymarketOracle(ctx.config.oracle_slug)
-            logger.info("Oracle enabled for %s: slug=%s", mid, ctx.config.oracle_slug)
-            try:
-                await market_oracle.get_price()
-            except Exception as e:
-                logger.warning("Oracle warm-up failed for %s: %s", mid, e)
-            market_oracles[mid] = market_oracle
-        else:
-            market_oracles[mid] = None
-
     # Load oracle config (interval + thresholds) from global config file (optional)
     _project_root = Path(__file__).resolve().parent.parent.parent
     _oracle_cfg_path = _project_root / "config" / "oracle.yaml"
@@ -414,11 +410,29 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
         _oracle_interval = _oracle_data.get("update_interval_seconds", 30.0)
         _oracle_lag_threshold = _oracle_data.get("lag_threshold_seconds", 10.0)
         _oracle_deviation_threshold = _oracle_data.get("deviation_threshold_cents", 20.0)
-    # Apply thresholds to contexts that have an oracle enabled
-    for mid, ctx in contexts.items():
-        if market_oracles.get(mid) is not None:
+
+    # Apply thresholds before oracle construction so the unified oracle uses them too.
+    for ctx in contexts.values():
+        if ctx.config.oracle_slug:
             ctx.oracle_lag_threshold = _oracle_lag_threshold
             ctx.oracle_deviation_threshold = _oracle_deviation_threshold
+            ctx.config.oracle_stale_seconds = _oracle_lag_threshold
+            ctx.config.oracle_deviation_cents = _oracle_deviation_threshold
+
+    # Build per-market oracles — each market gets its own oracle instance
+    # so different oracle_slug configs don't pollute each other.
+    market_oracles: dict[str, PolymarketOracle | None] = {}
+    for mid, ctx in contexts.items():
+        if ctx.config.oracle_slug:
+            market_oracle = PolymarketOracle(ctx.config)
+            logger.info("Oracle enabled for %s: slug=%s", mid, ctx.config.oracle_slug)
+            try:
+                await market_oracle.refresh()
+            except Exception as e:
+                logger.warning("Oracle warm-up failed for %s: %s", mid, e)
+            market_oracles[mid] = market_oracle
+        else:
+            market_oracles[mid] = None
 
     tasks = []
     for ctx in contexts.values():
@@ -456,7 +470,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     market_task_handles.extend(tasks)
 
     # Background tasks: reconciler + per-market oracle refresh loops + health server
-    reconciler = AMMReconciler(api=api, cache=inventory_cache)
+    reconciler = AMMReconciler(api=api, inventory_cache=inventory_cache)
     background_tasks.append(asyncio.create_task(
         reconcile_loop(reconciler, contexts, 300.0),
         name="reconcile-loop",

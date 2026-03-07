@@ -252,3 +252,29 @@ class TestDynamicGammaByAge:
         cfg = MarketConfig(market_id="test")
         assert hasattr(cfg, "market_creation_date")
         assert cfg.market_creation_date is None
+
+
+class TestASEngineSpreadRegression:
+    def test_bernoulli_sigma_midpoint_stays_in_cents_space(self) -> None:
+        """Regression: sigma at 50c should stay in price units, not fractional probability."""
+        engine = ASEngine()
+
+        assert engine.bernoulli_sigma(50) == pytest.approx(0.5)
+
+    def test_mid_50_gamma_03_produces_sane_quotes_without_boundary_clamp(self) -> None:
+        """Regression: the spread should stay in a realistic cents range near mid=50."""
+        engine = ASEngine()
+
+        ask, bid = engine.compute_quotes(
+            mid_price=50,
+            inventory_skew=0.0,
+            gamma=0.3,
+            sigma=engine.bernoulli_sigma(50),
+            tau_hours=24.0,
+            kappa=1.5,
+        )
+
+        assert (ask, bid) != (99, 1)
+        assert ask > 50
+        assert bid < 50
+        assert 3 <= (ask - bid) <= 10

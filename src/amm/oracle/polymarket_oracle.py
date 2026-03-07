@@ -7,15 +7,27 @@ Integrates with the polymarket CLI to detect:
 """
 from __future__ import annotations
 
+import asyncio
 import json
-import subprocess
+import logging
+import os
 import time
 from enum import StrEnum
+from typing import Protocol
 
 from src.amm.config.models import MarketConfig
 from src.amm.models.enums import DefenseLevel
 
-_POLYMARKET_BIN = "/opt/homebrew/bin/polymarket"
+logger = logging.getLogger(__name__)
+_POLYMARKET_BIN = os.environ.get("POLYMARKET_BIN", "/opt/homebrew/bin/polymarket")
+
+
+class _OracleConfig(Protocol):
+    oracle_slug: str
+    oracle_stale_seconds: float
+    oracle_deviation_cents: float
+    oracle_lvr_window_seconds: float
+    oracle_lvr_threshold: float
 
 
 class OracleState(StrEnum):
@@ -39,29 +51,54 @@ class PolymarketOracle:
     """External price oracle backed by the Polymarket CLI.
 
     Usage:
-        oracle.refresh()                        # fetch current price from CLI
+        await oracle.refresh()                  # fetch current price from CLI
         state = oracle.evaluate(internal_mid)  # returns OracleState
     """
 
-    def __init__(self, config: MarketConfig) -> None:
+    def __init__(self, config: MarketConfig | _OracleConfig) -> None:
+        missing = [
+            attr for attr in (
+                "oracle_slug",
+                "oracle_stale_seconds",
+                "oracle_deviation_cents",
+                "oracle_lvr_window_seconds",
+                "oracle_lvr_threshold",
+            )
+            if not hasattr(config, attr)
+        ]
+        if missing:
+            raise TypeError(
+                "PolymarketOracle config missing required attributes: "
+                + ", ".join(missing)
+            )
         self._config = config
         # (monotonic_timestamp, price_cents)
         self._price_history: list[tuple[float, float]] = []
         self._last_refresh_time: float | None = None
+        self.last_price: float | None = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def refresh(self) -> None:
+    async def refresh(self) -> None:
         """Fetch price from Polymarket CLI and record it with current timestamp."""
-        price = self._fetch_price()
+        price = await self._fetch_price()
         now = time.monotonic()
         self._last_refresh_time = now
         self._price_history.append((now, price))
+        self.last_price = price
         # Prune history older than 60 seconds (keep memory bounded)
         cutoff = now - 60.0
         self._price_history = [(t, p) for t, p in self._price_history if t >= cutoff]
+
+    async def get_price(self) -> float:
+        """Refresh and return the latest YES price in cents.
+
+        Raises RuntimeError if the CLI fails, times out, or returns malformed data.
+        """
+        await self.refresh()
+        return self.get_yes_price()
 
     def get_yes_price(self) -> float:
         """Return latest cached YES price in cents (0–100).
@@ -118,14 +155,60 @@ class PolymarketOracle:
     # Internal
     # ------------------------------------------------------------------
 
-    def _fetch_price(self) -> float:
+    async def _fetch_price(self) -> float:
         """Call polymarket CLI and parse YES price from outcomePrices field."""
-        result = subprocess.run(
-            [_POLYMARKET_BIN, "-o", "json", "markets", "get", self._config.oracle_slug],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"Polymarket CLI error: {result.stderr}")
-        data: dict = json.loads(result.stdout)
-        return float(data["outcomePrices"][0]) * 100.0
+        proc: asyncio.subprocess.Process | None = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                _POLYMARKET_BIN,
+                "-o",
+                "json",
+                "markets",
+                "get",
+                self._config.oracle_slug,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            returncode = proc.returncode
+            if returncode is None:
+                raise RuntimeError(
+                    f"polymarket CLI did not exit cleanly for {self._config.oracle_slug}"
+                )
+            if returncode != 0:
+                raise RuntimeError(stderr.decode() if stderr else "unknown polymarket CLI error")
+            data: dict[str, object] = json.loads(stdout.decode())
+            outcome_prices = data.get("outcomePrices")
+            if isinstance(outcome_prices, list) and outcome_prices:
+                return float(outcome_prices[0]) * 100.0
+            raise RuntimeError("polymarket CLI response missing outcomePrices")
+        except asyncio.CancelledError:
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except ProcessLookupError:
+                    pass
+            raise
+        except asyncio.TimeoutError:
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except ProcessLookupError:
+                    pass  # process already exited between timeout and kill()
+            logger.warning("PolymarketOracle refresh timeout for %s", self._config.oracle_slug)
+            raise RuntimeError(
+                f"polymarket CLI timed out for {self._config.oracle_slug}"
+            ) from None
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "PolymarketOracle refresh failed for %s: %s",
+                self._config.oracle_slug,
+                exc,
+            )
+            raise RuntimeError(
+                f"polymarket CLI failed for {self._config.oracle_slug}"
+            ) from exc
