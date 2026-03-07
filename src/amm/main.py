@@ -304,6 +304,7 @@ async def quote_cycle(
             )
             # Undo: let next cycle re-detect the terminal status and retry.
             ctx.winding_down = False
+            ctx.shutdown_requested = False
             ctx.market_status_checked_at = 0.0
         return
     market_is_active = ctx.last_known_market_active

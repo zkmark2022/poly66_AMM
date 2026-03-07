@@ -227,7 +227,7 @@ class OrderManager:
         """Restore active_orders from Redis after restart.
 
         Builds into a temporary dict first so that on any exception
-        active_orders is left empty rather than in a half-populated state.
+        active_orders is left unchanged rather than in a half-populated state.
         """
         if self._order_cache is None:
             return
