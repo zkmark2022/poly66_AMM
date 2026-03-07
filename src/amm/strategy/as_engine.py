@@ -80,30 +80,43 @@ class ASEngine:
         bid = clamp(math.floor(bid_raw), 1, 99)
 
         if ask <= bid:
-            ask = min(bid + 1, 99)
+            # When both clamp to the same boundary (e.g., r >> 99 → both become 99),
+            # pushing ask up fails. Lower bid instead.
+            ask = min(99, bid + 1)
+            if ask <= bid:
+                bid = max(1, ask - 1)
 
         if spread_min_cents > spread_max_cents:
-            logger.warning(
-                "spread_min_cents=%d > spread_max_cents=%d; ignoring constraints",
-                spread_min_cents, spread_max_cents,
+            raise ValueError(
+                f"spread_min_cents={spread_min_cents} > spread_max_cents={spread_max_cents}"
             )
-        else:
-            mid_r = round(r)
 
-            # Enforce minimum spread
-            if ask - bid < spread_min_cents:
-                half = spread_min_cents // 2
-                ask = clamp(mid_r + (spread_min_cents - half), 1, 99)
-                bid = clamp(mid_r - half, 1, 99)
+        mid_r = round(r)
 
-            # Enforce maximum spread
-            if ask - bid > spread_max_cents:
-                half = spread_max_cents // 2
-                ask = clamp(mid_r + (spread_max_cents - half), 1, 99)
-                bid = clamp(mid_r - half, 1, 99)
+        # Enforce minimum spread
+        if ask - bid < spread_min_cents:
+            half = spread_min_cents // 2
+            ask = clamp(mid_r + (spread_min_cents - half), 1, 99)
+            bid = clamp(mid_r - half, 1, 99)
 
-            # Re-check after boundary clamping
+        # Enforce maximum spread
+        if ask - bid > spread_max_cents:
+            half = spread_max_cents // 2
+            ask = clamp(mid_r + (spread_max_cents - half), 1, 99)
+            bid = clamp(mid_r - half, 1, 99)
+
+        # Re-check after boundary clamping (same two-step logic as above)
+        if ask <= bid:
+            ask = min(99, bid + 1)
             if ask <= bid:
-                ask = min(bid + 1, 99)
+                bid = max(1, ask - 1)
+
+        # Log when boundary shrinks spread below min (acceptable at price extremes)
+        actual_spread = ask - bid
+        if actual_spread < spread_min_cents:
+            logger.debug(
+                "spread %dc < min %dc at boundary price %.1f",
+                actual_spread, spread_min_cents, r,
+            )
 
         return ask, bid

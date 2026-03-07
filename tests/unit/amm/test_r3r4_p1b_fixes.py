@@ -113,6 +113,77 @@ class TestASEngineSpreadConstraints:
         )
         assert ask - bid >= 2
 
+    def test_spread_valid_at_high_boundary_normal_skew(self) -> None:
+        """At high boundary (mid=99), spread_min=10: ask<=99, bid>=1, ask>bid."""
+        engine = ASEngine()
+        ask, bid = engine.compute_quotes(
+            mid_price=99,
+            inventory_skew=0.0,
+            gamma=0.01,
+            sigma=0.001,
+            tau_hours=0.001,
+            kappa=100.0,
+            spread_min_cents=10,
+            spread_max_cents=20,
+        )
+        assert ask <= 99, f"ask={ask} must not exceed 99"
+        assert bid >= 1, f"bid={bid} must not be below 1"
+        assert ask > bid, f"ask={ask} must be strictly > bid={bid}"
+
+    def test_spread_valid_when_reservation_price_far_above_99(self) -> None:
+        """Extreme negative skew pushes r >> 99; ask > bid must still hold.
+
+        Bug: both ask and bid clamp to 99, then the re-check
+        ask = min(bid+1, 99) = min(100, 99) = 99 leaves ask == bid.
+        """
+        engine = ASEngine()
+        # inventory_skew=-10 with high gamma/sigma/tau → r ≈ 7779
+        ask, bid = engine.compute_quotes(
+            mid_price=99,
+            inventory_skew=-10.0,
+            gamma=1.0,
+            sigma=0.4,
+            tau_hours=48.0,
+            kappa=1.0,
+            spread_min_cents=10,
+            spread_max_cents=20,
+        )
+        assert ask <= 99, f"ask={ask} must not exceed 99"
+        assert bid >= 1, f"bid={bid} must not be below 1"
+        assert ask > bid, f"ask={ask} must be > bid={bid} when r >> 99 (was returning 99, 99)"
+
+    def test_spread_valid_when_reservation_price_far_below_1(self) -> None:
+        """Extreme positive skew pushes r << 1; ask > bid must still hold."""
+        engine = ASEngine()
+        ask, bid = engine.compute_quotes(
+            mid_price=1,
+            inventory_skew=10.0,
+            gamma=1.0,
+            sigma=0.4,
+            tau_hours=48.0,
+            kappa=1.0,
+            spread_min_cents=10,
+            spread_max_cents=20,
+        )
+        assert ask <= 99, f"ask={ask} must not exceed 99"
+        assert bid >= 1, f"bid={bid} must not be below 1"
+        assert ask > bid, f"ask={ask} must be > bid={bid} when r << 1"
+
+    def test_invalid_spread_config_raises_value_error(self) -> None:
+        """spread_min_cents > spread_max_cents must raise ValueError."""
+        engine = ASEngine()
+        with pytest.raises(ValueError, match="spread_min_cents"):
+            engine.compute_quotes(
+                mid_price=50,
+                inventory_skew=0.0,
+                gamma=0.3,
+                sigma=0.05,
+                tau_hours=24.0,
+                kappa=1.5,
+                spread_min_cents=20,
+                spread_max_cents=10,
+            )
+
     @pytest.mark.asyncio
     async def test_quote_cycle_passes_spread_config_to_engine(self) -> None:
         """quote_cycle must pass ctx.config.spread_min/max_cents to as_engine.compute_quotes."""
