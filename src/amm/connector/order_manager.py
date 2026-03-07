@@ -243,10 +243,11 @@ class OrderManager:
             )
         # Atomic replace — no partial state on success or failure above.
         self.active_orders = tmp
-        # Only overwrite Redis pending-sell counters when we actually restored
-        # orders; an empty cache would zero out valid InventoryCache state.
-        if self.active_orders:
-            await self._sync_pending_sell(market_id)
+        # Always sync pending-sell counters after a successful cache read.
+        # If OrderCache returned {} (empty), there are no active orders so
+        # pending-sell should be 0 — stale Redis InventoryCache values must
+        # be cleared to avoid artificially low yes_available/no_available.
+        await self._sync_pending_sell(market_id)
 
     @staticmethod
     def _intent_fingerprint(intent: OrderIntent) -> str:
