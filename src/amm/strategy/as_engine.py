@@ -91,19 +91,19 @@ class ASEngine:
                 f"spread_min_cents={spread_min_cents} > spread_max_cents={spread_max_cents}"
             )
 
-        mid_r = round(r)
+        # Enforce spread constraints
+        def _recalculate_spread(spread_to_enforce: int) -> tuple[int, int]:
+            half = spread_to_enforce // 2
+            mid_r = round(r)
+            new_ask = clamp(mid_r + (spread_to_enforce - half), 1, 99)
+            new_bid = clamp(mid_r - half, 1, 99)
+            return new_ask, new_bid
 
-        # Enforce minimum spread
         if ask - bid < spread_min_cents:
-            half = spread_min_cents // 2
-            ask = clamp(mid_r + (spread_min_cents - half), 1, 99)
-            bid = clamp(mid_r - half, 1, 99)
+            ask, bid = _recalculate_spread(spread_min_cents)
 
-        # Enforce maximum spread
         if ask - bid > spread_max_cents:
-            half = spread_max_cents // 2
-            ask = clamp(mid_r + (spread_max_cents - half), 1, 99)
-            bid = clamp(mid_r - half, 1, 99)
+            ask, bid = _recalculate_spread(spread_max_cents)
 
         # Re-check after boundary clamping (same two-step logic as above)
         if ask <= bid:
