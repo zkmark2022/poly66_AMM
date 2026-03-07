@@ -146,8 +146,12 @@ async def _evaluate_oracle_state(
             return OracleState.STALE
 
     check_lag = getattr(oracle, "check_lag", None)
-    if callable(check_lag) and check_lag(threshold_seconds=ctx.oracle_lag_threshold):
-        return OracleState.STALE
+    if callable(check_lag):
+        lag_result = check_lag(threshold_seconds=ctx.oracle_lag_threshold)
+        if inspect.isawaitable(lag_result):
+            lag_result = await lag_result
+        if lag_result:
+            return OracleState.STALE
 
     check_lvr = getattr(oracle, "check_lvr", None)
     if callable(check_lvr):

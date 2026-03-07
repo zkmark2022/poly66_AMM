@@ -584,6 +584,18 @@ class TestAMMMain:
 
         assert state is OracleState.STALE
 
+    async def test_evaluate_oracle_state_awaits_async_check_lag(self, recwarn: pytest.WarningsRecorder) -> None:
+        ctx = _make_context()
+
+        class PartialOracle:
+            async def check_lag(self, threshold_seconds: float = 3.0) -> bool:
+                return threshold_seconds == ctx.oracle_lag_threshold
+
+        state = await _evaluate_oracle_state(PartialOracle(), ctx, internal_price_cents=51.0)
+
+        assert state is OracleState.STALE
+        assert not [warning for warning in recwarn if warning.category is RuntimeWarning]
+
     async def test_evaluate_oracle_state_fallback_forwards_deviation_threshold(self) -> None:
         ctx = _make_context()
         ctx.oracle_deviation_threshold = 17.0
