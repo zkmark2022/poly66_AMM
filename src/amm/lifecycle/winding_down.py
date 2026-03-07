@@ -27,6 +27,10 @@ async def handle_winding_down(
 
     if order_mgr is not None:
         await order_mgr.cancel_all(ctx.market_id)
+        # Clear in-memory pending_sell so burn quantity is not underestimated
+        # when all inventory is resting on the book.
+        ctx.inventory.yes_pending_sell = 0
+        ctx.inventory.no_pending_sell = 0
 
     quantity = min(ctx.inventory.yes_available, ctx.inventory.no_available)
     if quantity <= 0:

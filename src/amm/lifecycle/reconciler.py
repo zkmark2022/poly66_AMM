@@ -29,7 +29,7 @@ class AMMReconciler:
     async def reconcile(
         self,
         market_ids: list[str],
-        n_markets_total: int = 0,
+        n_markets_total: int | None = None,
         balance_resp: dict | None = None,
     ) -> dict[str, dict]:
         """Full-state reconciliation for all markets.
@@ -49,7 +49,7 @@ class AMMReconciler:
         frozen_cents = int(bal.get("frozen_balance_cents", 0))
 
         results: dict[str, dict] = {}
-        n_markets = max(1, n_markets_total if n_markets_total > 0 else len(market_ids))
+        n_markets = max(1, n_markets_total if n_markets_total is not None else len(market_ids))
         allocated_cash = cash_cents // n_markets
 
         for market_id in market_ids:

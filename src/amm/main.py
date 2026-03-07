@@ -334,7 +334,7 @@ async def quote_cycle(
     ask_ladder = gradient.build_ask_ladder(ask, ctx.config, base_qty)
     bid_ladder = gradient.build_bid_ladder(bid, ctx.config, base_qty)
 
-    intents = sanitizer.sanitize(ask_ladder + bid_ladder, defense, ctx)
+    intents = sanitizer.sanitize(ask_ladder + bid_ladder, defense, ctx, inventory=inv)
     intents = drop_buy_side_intents_when_cash_depleted(intents, inv.cash_cents)
 
     # Step 4: Execute — send order diff to API
