@@ -13,12 +13,21 @@ import logging
 import os
 import time
 from enum import StrEnum
+from typing import Protocol
 
 from src.amm.config.models import MarketConfig
 from src.amm.models.enums import DefenseLevel
 
 logger = logging.getLogger(__name__)
 _POLYMARKET_BIN = os.environ.get("POLYMARKET_BIN", "/opt/homebrew/bin/polymarket")
+
+
+class _OracleConfig(Protocol):
+    oracle_slug: str
+    oracle_stale_seconds: float
+    oracle_deviation_cents: float
+    oracle_lvr_window_seconds: float
+    oracle_lvr_threshold: float
 
 
 class OracleState(StrEnum):
@@ -46,9 +55,22 @@ class PolymarketOracle:
         state = oracle.evaluate(internal_mid)  # returns OracleState
     """
 
-    def __init__(self, config: MarketConfig) -> None:
-        if not isinstance(config, MarketConfig):
-            raise TypeError("PolymarketOracle requires a MarketConfig")
+    def __init__(self, config: MarketConfig | _OracleConfig) -> None:
+        missing = [
+            attr for attr in (
+                "oracle_slug",
+                "oracle_stale_seconds",
+                "oracle_deviation_cents",
+                "oracle_lvr_window_seconds",
+                "oracle_lvr_threshold",
+            )
+            if not hasattr(config, attr)
+        ]
+        if missing:
+            raise TypeError(
+                "PolymarketOracle config missing required attributes: "
+                + ", ".join(missing)
+            )
         self._config = config
         # (monotonic_timestamp, price_cents)
         self._price_history: list[tuple[float, float]] = []

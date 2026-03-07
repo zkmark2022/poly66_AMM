@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.amm.oracle.polymarket import PolymarketOracle as LegacyPolymarketOracle
 from src.amm.config.models import MarketConfig
 from src.amm.oracle.polymarket_oracle import PolymarketOracle
 
@@ -25,11 +27,6 @@ def _make_config(**kwargs: object) -> MarketConfig:
 
 
 class TestPolymarketOracleRefresh:
-    def test_constructor_requires_market_config(self) -> None:
-        """Only the MarketConfig constructor is supported."""
-        with pytest.raises(TypeError):
-            PolymarketOracle("will-btc-exceed-100000")
-
     @pytest.mark.asyncio
     async def test_refresh_is_awaitable_for_config_constructor(self) -> None:
         """refresh() must be async on the unified oracle implementation."""
@@ -47,10 +44,23 @@ class TestPolymarketOracleRefresh:
 
         assert oracle.get_yes_price() == pytest.approx(52.0)
 
-    def test_constructor_rejects_legacy_market_slug_keyword(self) -> None:
-        """Explicit slug-only construction was removed with the legacy oracle path."""
-        with pytest.raises(TypeError):
-            PolymarketOracle(market_slug="will-btc-exceed-100000")
+    def test_constructor_accepts_config_like_objects(self) -> None:
+        """Structurally compatible config wrappers should still work."""
+        config_like = SimpleNamespace(
+            oracle_slug="test-market",
+            oracle_stale_seconds=3.0,
+            oracle_deviation_cents=20.0,
+            oracle_lvr_window_seconds=0.5,
+            oracle_lvr_threshold=0.2,
+        )
+
+        oracle = PolymarketOracle(config_like)
+
+        assert oracle.check_stale() is True
+
+    def test_legacy_import_path_reexports_unified_oracle(self) -> None:
+        """Older imports should keep resolving to the unified oracle implementation."""
+        assert LegacyPolymarketOracle is PolymarketOracle
 
     @pytest.mark.asyncio
     async def test_refresh_raises_when_outcome_prices_missing(self) -> None:

@@ -573,6 +573,26 @@ class TestAMMMain:
 
         assert state is OracleState.NORMAL
 
+    async def test_evaluate_oracle_state_skips_check_lag_when_check_stale_exists(self) -> None:
+        ctx = _make_context()
+
+        class PartialOracle:
+            def check_stale(self) -> bool:
+                return False
+
+            def check_lag(self, threshold_seconds: float = 3.0) -> bool:
+                raise AssertionError("check_lag should not run when check_stale is available")
+
+            def check_lvr(self) -> bool:
+                return False
+
+            def check_deviation(self, internal_price_cents: float, threshold: float | None = None) -> bool:
+                return False
+
+        state = await _evaluate_oracle_state(PartialOracle(), ctx, internal_price_cents=51.0)
+
+        assert state is OracleState.NORMAL
+
     async def test_evaluate_oracle_state_falls_back_to_check_lag(self) -> None:
         ctx = _make_context()
 
