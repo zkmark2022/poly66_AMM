@@ -92,26 +92,6 @@ class ControllableOracle:
         return self._price
 
 
-def _extract_spread(orders_placed: list[dict]) -> int | None:
-    """Extract spread from placed orders: max(YES prices) - min(NO mapped prices)."""
-    yes_prices = [o["price_cents"] for o in orders_placed if o.get("side") == "YES"]
-    no_prices = [o["price_cents"] for o in orders_placed if o.get("side") == "NO"]
-
-    if not yes_prices or not no_prices:
-        # ONE_SIDE mode: only one side has orders
-        # Return a large spread indicator for ONE_SIDE mode
-        if yes_prices:
-            return max(yes_prices) - min(yes_prices) + 50  # artificially wide
-        if no_prices:
-            return max(no_prices) - min(no_prices) + 50
-        return None
-
-    # ask (YES SELL) lowest price vs bid (mapped from NO SELL: bid = 100 - no_price)
-    min_ask = min(yes_prices)
-    # NO sell price → bid_yes = 100 - no_price → highest bid = 100 - min(no_price)
-    max_bid = 100 - min(no_prices)
-    return min_ask - max_bid
-
 
 def _build_cycle_deps(
     config: MarketConfig,
@@ -202,8 +182,8 @@ async def test_oracle_lag_widens_spread_then_recovers(
         await quote_cycle(ctx, **deps2, oracle=oracle)
 
     # STALE oracle → ONE_SIDE defense
-    assert ctx.defense_level in (DefenseLevel.ONE_SIDE, DefenseLevel.WIDEN, DefenseLevel.KILL_SWITCH), (
-        f"Expected escalated defense during STALE, got {ctx.defense_level}"
+    assert ctx.defense_level == DefenseLevel.ONE_SIDE, (
+        f"Expected ONE_SIDE defense during STALE, got {ctx.defense_level}"
     )
 
     spread_passive = _extract_spread_from_active(order_mgr2)

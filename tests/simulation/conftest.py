@@ -13,6 +13,7 @@ import fakeredis
 import fakeredis.aioredis
 import httpx
 import pytest
+import pytest_asyncio
 import respx
 
 from src.amm.config.models import MarketConfig
@@ -58,7 +59,7 @@ def mock_exchange() -> Any:
 
     base_url = "http://test-exchange"
 
-    with respx.mock(base_url=base_url, assert_all_mocked=False, assert_all_called=False) as router:
+    with respx.mock(base_url=base_url, assert_all_mocked=True, assert_all_called=False) as router:
         # --- order endpoints ---
         def _handle_place_order(request: httpx.Request) -> httpx.Response:
             body = json.loads(request.content)
@@ -67,7 +68,7 @@ def mock_exchange() -> Any:
             return httpx.Response(200, json={"data": {"order_id": f"ord-{len(orders_placed)}"}})
 
         def _handle_cancel_order(request: httpx.Request) -> httpx.Response:
-            path = request.url.path
+            path = request.url.path.rstrip("/")
             # extract order id: /orders/{id}/cancel
             parts = path.split("/")
             order_id = parts[-2] if parts[-1] == "cancel" else parts[-1]
@@ -162,7 +163,7 @@ def fake_redis_sync() -> Any:
 # 3. fake_redis_async
 # ---------------------------------------------------------------------------
 
-@pytest.fixture()
+@pytest_asyncio.fixture()
 async def fake_redis_async() -> Any:
     """Async fakeredis instance, auto-flushed on teardown."""
     r = fakeredis.aioredis.FakeRedis()

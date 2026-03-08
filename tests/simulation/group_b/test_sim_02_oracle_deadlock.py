@@ -159,8 +159,8 @@ async def test_oracle_stale_does_not_permanently_lock_one_side(
         oracle=oracle, phase_mgr=phase_mgr,
     )
 
-    assert ctx.defense_level != DefenseLevel.KILL_SWITCH, (
-        "STALE oracle should produce ONE_SIDE, not KILL_SWITCH"
+    assert ctx.defense_level == DefenseLevel.ONE_SIDE, (
+        "STALE oracle should produce ONE_SIDE defense"
     )
 
     # Refresh oracle to make it NORMAL
