@@ -24,7 +24,6 @@ from src.amm.main import quote_cycle
 from src.amm.models.enums import DefenseLevel
 
 from tests.simulation.conftest import (
-    CapturingOrderManager,
     compute_effective_spread,
     make_config,
     make_context,

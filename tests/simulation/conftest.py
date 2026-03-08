@@ -5,10 +5,7 @@ test scenarios without duplicating mock setup.
 """
 from __future__ import annotations
 
-import time
 from unittest.mock import AsyncMock
-
-import pytest
 
 from src.amm.config.models import MarketConfig
 from src.amm.connector.api_client import AMMApiClient
