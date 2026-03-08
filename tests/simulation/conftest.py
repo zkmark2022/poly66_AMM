@@ -50,8 +50,8 @@ def _default_balance() -> dict:
     return {"data": {"balance_cents": 100_000, "frozen_cents": 0}}
 
 
-@pytest.fixture()
-def mock_exchange() -> Any:
+@pytest_asyncio.fixture()
+async def mock_exchange() -> Any:
     """Mock exchange yielding an httpx.AsyncClient with call recording."""
     orders_placed: list[dict] = []
     orders_cancelled: list[str] = []
@@ -136,14 +136,13 @@ def mock_exchange() -> Any:
         # Must be after /markets/.../orderbook to avoid shadowing
         router.get(path__regex=r"/markets/[^/]+$").mock(side_effect=_handle_market)
 
-        client = httpx.AsyncClient(base_url=base_url)
-
-        yield {
-            "client": client,
-            "orders_placed": orders_placed,
-            "orders_cancelled": orders_cancelled,
-            "call_log": call_log,
-        }
+        async with httpx.AsyncClient(base_url=base_url) as client:
+            yield {
+                "client": client,
+                "orders_placed": orders_placed,
+                "orders_cancelled": orders_cancelled,
+                "call_log": call_log,
+            }
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +182,7 @@ def make_market_config() -> Callable[..., MarketConfig]:
     Parameters map to simulation concepts:
     - market_id: unique market identifier
     - yes_volume / no_volume: initial mint quantity derives from these
-    - cash_cents: starting cash (used for risk budget calculations)
+    - loss_budget_cents: risk loss budget (maps to max_daily_loss_cents; per-market limit is half)
     - tau_hours: remaining_hours_override for A-S model time horizon
     - mid_price: float [0,1] → converted to anchor_price_cents (int cents)
     """
@@ -193,7 +192,7 @@ def make_market_config() -> Callable[..., MarketConfig]:
         market_id: str = "test-market-001",
         yes_volume: int = 1000,
         no_volume: int = 1000,
-        cash_cents: int = 50_000,
+        loss_budget_cents: int = 50_000,
         tau_hours: float = 24.0,
         mid_price: float = 0.50,
     ) -> MarketConfig:
@@ -204,8 +203,8 @@ def make_market_config() -> Callable[..., MarketConfig]:
             anchor_price_cents=anchor_cents,
             initial_mint_quantity=total_shares,
             remaining_hours_override=tau_hours,
-            max_daily_loss_cents=cash_cents,
-            max_per_market_loss_cents=cash_cents // 2,
+            max_daily_loss_cents=loss_budget_cents,
+            max_per_market_loss_cents=loss_budget_cents // 2,
         )
 
     return _factory
