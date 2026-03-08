@@ -2,7 +2,7 @@
 import httpx
 
 
-def test_mock_exchange_yields_dict(mock_exchange: dict) -> None:
+async def test_mock_exchange_yields_dict(mock_exchange: dict) -> None:
     assert isinstance(mock_exchange, dict)
     assert "orders_placed" in mock_exchange
     assert "orders_cancelled" in mock_exchange
@@ -12,7 +12,7 @@ def test_mock_exchange_yields_dict(mock_exchange: dict) -> None:
     assert isinstance(mock_exchange["call_log"], list)
 
 
-def test_mock_exchange_has_httpx_client(mock_exchange: dict) -> None:
+async def test_mock_exchange_has_httpx_client(mock_exchange: dict) -> None:
     client = mock_exchange["client"]
     assert isinstance(client, httpx.AsyncClient)
 

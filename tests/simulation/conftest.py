@@ -59,7 +59,7 @@ async def mock_exchange() -> Any:
 
     base_url = "http://test-exchange"
 
-    with respx.mock(base_url=base_url, assert_all_mocked=False, assert_all_called=False) as router:
+    with respx.mock(base_url=base_url, assert_all_mocked=True, assert_all_called=False) as router:
         # --- order endpoints ---
         def _handle_place_order(request: httpx.Request) -> httpx.Response:
             body = json.loads(request.content)
@@ -185,7 +185,7 @@ def make_market_config() -> Callable[..., MarketConfig]:
 
     Parameters map to simulation concepts:
     - market_id: unique market identifier
-    - yes_volume / no_volume: initial mint quantity derives from these
+    - yes_volume: initial mint quantity
     - cash_cents: starting cash (used for risk budget calculations)
     - tau_hours: remaining_hours_override for A-S model time horizon
     - mid_price: float [0,1] → converted to anchor_price_cents (int cents)
@@ -195,7 +195,6 @@ def make_market_config() -> Callable[..., MarketConfig]:
         *,
         market_id: str = "test-market-001",
         yes_volume: int = 1000,
-        no_volume: int = 1000,
         cash_cents: int = 50_000,
         tau_hours: float = 24.0,
         mid_price: float = 0.50,
