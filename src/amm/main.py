@@ -418,17 +418,28 @@ async def reconcile_loop(
     reconciler: AMMReconciler,
     contexts: dict[str, MarketContext],
     interval_seconds: float,
+    inventory_cache: "InventoryCache | None" = None,
 ) -> None:
     market_ids = list(contexts)
     n = len(market_ids)
     while not any(ctx.shutdown_requested for ctx in contexts.values()):
         # Fetch balance once per pass to ensure consistent allocation across markets.
+        # reconciler.reconcile() performs I/O (API calls + Redis writes); no lock needed.
+        # If drift is detected and inventory_cache is provided, we read the corrected
+        # inventory from cache and update ctx.inventory under lock.
         balance_resp = await reconciler.fetch_balance()
         for market_id in market_ids:
-            async with contexts[market_id].inventory_lock:
-                await reconciler.reconcile(
-                    [market_id], n_markets_total=n, balance_resp=balance_resp
-                )
+            drift_result = await reconciler.reconcile(
+                [market_id], n_markets_total=n, balance_resp=balance_resp
+            )
+            if (
+                inventory_cache is not None
+                and drift_result.get(market_id, {}).get("drifted")
+            ):
+                fresh = await inventory_cache.get(market_id)
+                if fresh is not None:
+                    async with contexts[market_id].inventory_lock:
+                        contexts[market_id].inventory = fresh
         await asyncio.sleep(interval_seconds)
 
 
@@ -564,7 +575,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     # Background tasks: reconciler + per-market oracle refresh loops + health server
     reconciler = AMMReconciler(api=api, inventory_cache=inventory_cache)
     background_tasks.append(asyncio.create_task(
-        reconcile_loop(reconciler, contexts, global_cfg.reconcile_interval_seconds),
+        reconcile_loop(reconciler, contexts, global_cfg.reconcile_interval_seconds, inventory_cache),
         name="reconcile-loop",
     ))
     for mid, market_oracle in market_oracles.items():
