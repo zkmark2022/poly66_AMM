@@ -1,6 +1,5 @@
 """Smoke tests: verify all simulation fixtures are importable and yield usable values."""
 import httpx
-import pytest
 
 
 def test_mock_exchange_yields_dict(mock_exchange: dict) -> None:
