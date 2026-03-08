@@ -17,7 +17,6 @@ Assertions:
 from __future__ import annotations
 
 import time
-from unittest.mock import patch
 
 import pytest
 
@@ -28,10 +27,10 @@ from src.amm.connector.auth import TokenManager
 from src.amm.connector.order_manager import OrderManager
 from src.amm.connector.trade_poller import TradePoller
 from src.amm.main import quote_cycle
-from src.amm.models.enums import DefenseLevel, Phase
+from src.amm.models.enums import DefenseLevel
 from src.amm.models.inventory import Inventory
 from src.amm.models.market_context import MarketContext
-from src.amm.oracle.polymarket_oracle import OracleState, PolymarketOracle
+from src.amm.oracle.polymarket_oracle import OracleState
 from src.amm.risk.defense_stack import DefenseStack
 from src.amm.risk.sanitizer import OrderSanitizer
 from src.amm.strategy.as_engine import ASEngine
@@ -131,8 +130,6 @@ async def test_oracle_stale_does_not_permanently_lock_one_side(
     config = _make_config()
     ctx = _make_context(config)
     client = mock_exchange["client"]
-    orders_placed = mock_exchange["orders_placed"]
-
     cache = InventoryCache(fake_redis_async)
     await cache.set(config.market_id, ctx.inventory)
 

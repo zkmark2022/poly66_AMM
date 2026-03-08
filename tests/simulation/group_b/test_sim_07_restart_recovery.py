@@ -188,8 +188,6 @@ async def test_restart_recovery_no_precision_loss(
     mock_exchange: dict,
 ) -> None:
     """Verify integer cents are preserved exactly through Redis serialization round-trip."""
-    config = _make_config()
-
     shared_server = fakeredis.FakeServer()
     redis = fakeredis.aioredis.FakeRedis(server=shared_server)
     cache = InventoryCache(redis)

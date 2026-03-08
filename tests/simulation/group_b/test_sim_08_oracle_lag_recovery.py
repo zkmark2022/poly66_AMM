@@ -15,7 +15,6 @@ Assertions (all numeric):
 from __future__ import annotations
 
 import time
-from unittest.mock import patch
 
 import pytest
 
@@ -161,7 +160,6 @@ async def test_oracle_lag_widens_spread_then_recovers(
     )
 
     client = mock_exchange["client"]
-    orders_placed = mock_exchange["orders_placed"]
 
     cache = InventoryCache(fake_redis_async)
     await cache.set(config.market_id, ctx.inventory)
