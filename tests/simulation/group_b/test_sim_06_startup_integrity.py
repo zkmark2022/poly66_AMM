@@ -11,7 +11,7 @@ Uses mock time.time() to control time progression without sleep.
 from __future__ import annotations
 
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -23,7 +23,7 @@ from src.amm.connector.order_manager import OrderManager
 from src.amm.connector.trade_poller import TradePoller
 from src.amm.lifecycle.health import HealthState, create_health_app
 from src.amm.lifecycle.reconciler import AMMReconciler
-from src.amm.main import quote_cycle, reconcile_loop
+from src.amm.main import quote_cycle
 from src.amm.models.enums import Phase
 from src.amm.models.inventory import Inventory
 from src.amm.models.market_context import MarketContext
