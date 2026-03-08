@@ -1,0 +1,135 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "market_id": "MKT-BTC-100K-2026",
+    "yes": {
+      "bids": [
+        {
+          "price_cents": 99,
+          "total_quantity": 40
+        },
+        {
+          "price_cents": 95,
+          "total_quantity": 200
+        },
+        {
+          "price_cents": 60,
+          "total_quantity": 810
+        },
+        {
+          "price_cents": 55,
+          "total_quantity": 10
+        },
+        {
+          "price_cents": 51,
+          "total_quantity": 3
+        },
+        {
+          "price_cents": 50,
+          "total_quantity": 2434
+        },
+        {
+          "price_cents": 45,
+          "total_quantity": 31
+        },
+        {
+          "price_cents": 42,
+          "total_quantity": 30
+        },
+        {
+          "price_cents": 40,
+          "total_quantity": 75
+        },
+        {
+          "price_cents": 30,
+          "total_quantity": 10
+        }
+      ],
+      "asks": [
+        {
+          "price_cents": 50,
+          "total_quantity": 411
+        },
+        {
+          "price_cents": 55,
+          "total_quantity": 10
+        },
+        {
+          "price_cents": 60,
+          "total_quantity": 7
+        },
+        {
+          "price_cents": 99,
+          "total_quantity": 332
+        }
+      ]
+    },
+    "no": {
+      "bids": [
+        {
+          "price_cents": 50,
+          "total_quantity": 411
+        },
+        {
+          "price_cents": 45,
+          "total_quantity": 10
+        },
+        {
+          "price_cents": 40,
+          "total_quantity": 7
+        },
+        {
+          "price_cents": 1,
+          "total_quantity": 332
+        }
+      ],
+      "asks": [
+        {
+          "price_cents": 1,
+          "total_quantity": 40
+        },
+        {
+          "price_cents": 5,
+          "total_quantity": 200
+        },
+        {
+          "price_cents": 40,
+          "total_quantity": 810
+        },
+        {
+          "price_cents": 45,
+          "total_quantity": 10
+        },
+        {
+          "price_cents": 49,
+          "total_quantity": 3
+        },
+        {
+          "price_cents": 50,
+          "total_quantity": 2434
+        },
+        {
+          "price_cents": 55,
+          "total_quantity": 31
+        },
+        {
+          "price_cents": 58,
+          "total_quantity": 30
+        },
+        {
+          "price_cents": 60,
+          "total_quantity": 75
+        },
+        {
+          "price_cents": 70,
+          "total_quantity": 10
+        }
+      ]
+    },
+    "last_trade_price_cents": 70,
+    "updated_at": "2026-03-08T23:28:06.243875+00:00"
+  },
+  "timestamp": "2026-03-08T23:28:06.243918+00:00",
+  "request_id": "req_1a8bae0c1790"
+}

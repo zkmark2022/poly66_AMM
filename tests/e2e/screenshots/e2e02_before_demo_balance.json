@@ -1,0 +1,15 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "user_id": "30497991-c0cf-4917-9aae-acf0ec2363d8",
+    "available_balance_cents": 9678,
+    "available_balance_display": "$96.78",
+    "frozen_balance_cents": 1,
+    "frozen_balance_display": "$0.01",
+    "total_balance_cents": 9679,
+    "total_balance_display": "$96.79"
+  },
+  "timestamp": "2026-03-08T23:28:06.245990+00:00",
+  "request_id": "req_f39f01f69f5c"
+}

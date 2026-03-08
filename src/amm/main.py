@@ -456,7 +456,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     market_task_handles.extend(tasks)
 
     # Background tasks: reconciler + per-market oracle refresh loops + health server
-    reconciler = AMMReconciler(api=api, cache=inventory_cache)
+    reconciler = AMMReconciler(api=api, inventory_cache=inventory_cache)
     background_tasks.append(asyncio.create_task(
         reconcile_loop(reconciler, contexts, 300.0),
         name="reconcile-loop",

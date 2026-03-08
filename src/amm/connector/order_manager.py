@@ -181,7 +181,15 @@ class OrderManager:
                 await self._cache.clear_order_submission(market_id, fingerprint)
         except Exception as e:
             await self._cache.clear_order_submission(market_id, fingerprint)
-            logger.error("Failed to place order: %s", e)
+            detail = ""
+            if hasattr(e, "response"):
+                try:
+                    detail = f" body={e.response.text}"  # type: ignore[union-attr]
+                except Exception:
+                    pass
+            logger.error("Failed to place order %s %s@%s qty=%s: %s%s",
+                         intent.side, intent.direction, intent.price_cents,
+                         intent.quantity, e, detail)
 
     def _find_replace_target(self, intent: OrderIntent) -> tuple[str, ActiveOrder] | None:
         if intent.old_order_id is not None and intent.old_order_id in self.active_orders:

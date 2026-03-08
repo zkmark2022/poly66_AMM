@@ -1,0 +1,24 @@
+{
+  "order": {
+    "id": "306236563124125696",
+    "client_order_id": "b72c58e7-d5a4-496d-98ff-8e1d5eae755d",
+    "market_id": "MKT-BTC-100K-2026",
+    "original_side": "YES",
+    "original_direction": "SELL",
+    "original_price_cents": 65,
+    "book_type": "NATIVE_SELL",
+    "price_type": "LIMIT",
+    "time_in_force": "GTC",
+    "quantity": 2,
+    "filled_quantity": 0,
+    "remaining_quantity": 2,
+    "frozen_amount": 2,
+    "frozen_asset_type": "YES_SHARES",
+    "status": "OPEN",
+    "cancel_reason": null,
+    "created_at": "2026-03-08T23:28:06.249919Z",
+    "updated_at": "2026-03-08T23:28:06.249920Z"
+  },
+  "trades": [],
+  "netting_result": null
+}

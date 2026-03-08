@@ -1,0 +1,18 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [
+      {
+        "market_id": "MKT-BTC-100K-2026",
+        "yes_volume": 450,
+        "yes_cost_sum": 22500,
+        "no_volume": 453,
+        "no_cost_sum": 22650
+      }
+    ],
+    "total": 1
+  },
+  "timestamp": "2026-03-08T23:28:06.247744+00:00",
+  "request_id": "req_1b6678fbcd7d"
+}
