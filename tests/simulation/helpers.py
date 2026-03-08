@@ -215,6 +215,20 @@ def make_real_services(
 # Spread computation helper
 # ---------------------------------------------------------------------------
 
+def get_effective_quotes(intents: list[OrderIntent]) -> tuple[int, int] | None:
+    """Extract effective bid and ask from SELL intents.
+
+    Returns (bid_yes_equiv, ask_yes) or None if either side is missing.
+    """
+    yes_prices = [i.price_cents for i in intents if i.side == "YES" and i.direction == "SELL"]
+    no_prices = [i.price_cents for i in intents if i.side == "NO" and i.direction == "SELL"]
+    if not yes_prices or not no_prices:
+        return None
+    effective_ask = min(yes_prices)
+    effective_bid = 100 - min(no_prices)  # convert lowest NO price to YES bid
+    return effective_bid, effective_ask
+
+
 def compute_effective_spread(intents: list[OrderIntent]) -> int:
     """Compute effective YES-price spread from submitted order intents.
 
@@ -223,13 +237,13 @@ def compute_effective_spread(intents: list[OrderIntent]) -> int:
 
     Raises AssertionError if either side is missing (surfaces test setup bugs).
     """
-    yes_prices = [i.price_cents for i in intents if i.side == "YES" and i.direction == "SELL"]
-    no_prices = [i.price_cents for i in intents if i.side == "NO" and i.direction == "SELL"]
-    if not yes_prices or not no_prices:
+    quotes = get_effective_quotes(intents)
+    if quotes is None:
+        yes_prices = [i.price_cents for i in intents if i.side == "YES" and i.direction == "SELL"]
+        no_prices = [i.price_cents for i in intents if i.side == "NO" and i.direction == "SELL"]
         raise AssertionError(
             f"compute_effective_spread: missing YES or NO intents. "
             f"yes_prices={yes_prices}, no_prices={no_prices}"
         )
-    effective_ask = min(yes_prices)
-    effective_bid = 100 - min(no_prices)   # convert lowest NO price to YES bid
+    effective_bid, effective_ask = quotes
     return effective_ask - effective_bid

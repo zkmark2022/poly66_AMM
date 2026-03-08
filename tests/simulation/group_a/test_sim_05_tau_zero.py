@@ -31,6 +31,7 @@ from src.amm.main import quote_cycle
 
 from tests.simulation.helpers import (
     compute_effective_spread,
+    get_effective_quotes,
     make_config,
     make_context,
     make_inventory,
@@ -171,8 +172,8 @@ async def test_tau_zero_reservation_price_centered_on_mid() -> None:
     await quote_cycle(ctx, **services)
 
     intents = order_mgr.all_intents
-    yes_prices = [i.price_cents for i in intents if i.side == "YES"]
-    no_prices = [i.price_cents for i in intents if i.side == "NO"]
+    yes_prices = [i.price_cents for i in intents if i.side == "YES" and i.direction == "SELL"]
+    no_prices = [i.price_cents for i in intents if i.side == "NO" and i.direction == "SELL"]
     assert yes_prices and no_prices, "Expected YES and NO orders"
 
     ask = min(yes_prices)
