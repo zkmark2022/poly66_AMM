@@ -23,7 +23,7 @@ import pytest
 from src.amm.main import quote_cycle
 from src.amm.models.enums import DefenseLevel
 
-from tests.simulation.conftest import (
+from tests.simulation.helpers import (
     compute_effective_spread,
     make_config,
     make_context,
@@ -41,7 +41,7 @@ class TestWidenDefense:
     # -----------------------------------------------------------------------
 
     def _skewed_ctx(self):
-        """Context with inventory skew = 0.43 (> inventory_skew_widen=0.30)."""
+        """Context with inventory skew = 0.50 (> inventory_skew_widen=0.30)."""
         # skew = (600 - 200) / (600 + 200) = 400/800 = 0.50
         return make_context(
             inventory=make_inventory(yes_volume=600, no_volume=200),

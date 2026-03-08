@@ -29,7 +29,7 @@ import pytest
 
 from src.amm.main import quote_cycle
 
-from tests.simulation.conftest import (
+from tests.simulation.helpers import (
     compute_effective_spread,
     make_config,
     make_context,

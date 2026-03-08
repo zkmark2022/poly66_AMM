@@ -19,7 +19,7 @@ from src.amm.main import quote_cycle, reconcile_loop
 from src.amm.lifecycle.reconciler import AMMReconciler
 from src.amm.strategy.phase_manager import PhaseManager
 
-from tests.simulation.conftest import (
+from tests.simulation.helpers import (
     make_context,
     make_inventory,
     make_real_services,
