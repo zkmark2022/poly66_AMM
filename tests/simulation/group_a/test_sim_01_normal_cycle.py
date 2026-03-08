@@ -11,7 +11,6 @@ Assertions (all must be numeric/structural, not just "no exception"):
 """
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -21,13 +20,8 @@ from src.amm.lifecycle.reconciler import AMMReconciler
 from src.amm.strategy.phase_manager import PhaseManager
 
 from tests.simulation.conftest import (
-    CapturingOrderManager,
-    make_config,
     make_context,
     make_inventory,
-    make_mock_api,
-    make_mock_inventory_cache,
-    make_mock_poller,
     make_real_services,
 )
 
@@ -126,7 +120,6 @@ class TestNormalQuoteCycle:
         reconciler.reconcile.return_value = None
 
         contexts = {ctx.market_id: ctx}
-        call_count = 0
 
         async def one_shot_sleep(_: float) -> None:
             # Cancel loop after first reconcile call
