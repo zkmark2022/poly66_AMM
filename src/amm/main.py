@@ -11,6 +11,7 @@ from typing import Any, Callable, cast
 import httpx
 
 from src.amm.cache.inventory_cache import InventoryCache
+from src.amm.cache.order_cache import OrderCache
 from src.amm.cache.protocols import AsyncRedisLike
 from src.amm.cache.redis_client import create_redis_client
 from src.amm.config.loader import ConfigLoader
@@ -26,6 +27,7 @@ from src.amm.lifecycle.reinvest import (
 )
 from src.amm.lifecycle.reconciler import AMMReconciler
 from src.amm.lifecycle.shutdown import GracefulShutdown
+from src.amm.lifecycle.winding_down import handle_winding_down
 from src.amm.models.enums import DefenseLevel, Phase
 from src.amm.models.market_context import MarketContext
 from src.amm.risk.defense_stack import DEFENSE_SEVERITY, DefenseStack
@@ -148,7 +150,7 @@ async def _evaluate_oracle_state(
         result = evaluate(internal_price_cents=internal_price_cents)
         if inspect.isawaitable(result):
             return await result
-        return result
+        return result  # type: ignore[return-value]
 
     check_stale = getattr(oracle, "check_stale", None)
     if callable(check_stale):
@@ -189,13 +191,22 @@ async def quote_cycle(
     phase_mgr: PhaseManager | None = None,
 ) -> None:
     """Single quote cycle for one market: Sync → Strategy → Risk → Execute."""
+    if ctx.winding_down:
+        return
 
     # Step 1: Sync — poll new trades, refresh pending_sell
     recent_trades = await poller.poll(ctx.market_id)
     ctx.trade_count += len(recent_trades)
-    fresh = await inventory_cache.get(ctx.market_id)
-    if fresh is not None:
-        ctx.inventory = fresh
+    # Hold inventory_lock around both the Redis read and the ctx write,
+    # so reconcile_loop cannot overwrite ctx.inventory between our read and assign.
+    async with ctx.inventory_lock:
+        fresh = await inventory_cache.get(ctx.market_id)
+        if fresh is not None:
+            ctx.inventory = fresh
+        # Snapshot under lock — use inv (not ctx.inventory) for all reads
+        # this cycle, so a concurrent reconcile_loop replacing ctx.inventory
+        # at an await point cannot cause inconsistent skew/PnL/cash reads.
+        inv = ctx.inventory
     if ctx.phase == Phase.STABILIZATION:
         await maybe_auto_reinvest(ctx, api, inventory_cache=inventory_cache)
 
@@ -236,7 +247,7 @@ async def quote_cycle(
 
     ask, bid = as_engine.compute_quotes(
         mid_price=mid,
-        inventory_skew=ctx.inventory.inventory_skew,
+        inventory_skew=inv.inventory_skew,
         gamma=gamma,
         sigma=sigma,
         tau_hours=tau,
@@ -250,7 +261,7 @@ async def quote_cycle(
     bid_ladder = gradient.build_bid_ladder(bid, ctx.config, base_qty)
 
     # Step 2.5: Update session P&L — must happen before risk evaluation
-    ctx.session_pnl_cents = ctx.inventory.total_value_cents(mid) - ctx.initial_inventory_value_cents
+    ctx.session_pnl_cents = inv.total_value_cents(mid) - ctx.initial_inventory_value_cents
 
     # Step 3: Risk — oracle check then defense evaluation
     oracle_defense = DefenseLevel.NORMAL
@@ -269,20 +280,37 @@ async def quote_cycle(
 
     # Fetch live market status with TTL cache — avoids a REST call on every cycle
     now = time.monotonic()
+    _terminal_status: str | None = None
     if now - ctx.market_status_checked_at >= _MARKET_STATUS_TTL:
         try:
             status = await api.get_market_status(ctx.market_id)
-            ctx.last_known_market_active = status in {"active", "open"}
+            status_lower = status.lower()
+            ctx.last_known_market_active = status_lower in {"active", "open"}
             ctx.market_status_checked_at = now
+            if status_lower in {"resolved", "settled", "voided"}:
+                _terminal_status = status_lower.upper()
         except Exception:
             logger.warning(
                 "Market status fetch failed for %s — using last-known active=%s",
                 ctx.market_id, ctx.last_known_market_active,
             )
+    if _terminal_status is not None:
+        try:
+            await handle_winding_down(ctx, api, _terminal_status, order_mgr)
+        except Exception as exc:
+            logger.error(
+                "handle_winding_down failed for %s: %s — will retry next cycle",
+                ctx.market_id, exc,
+            )
+            # Undo: let next cycle re-detect the terminal status and retry.
+            ctx.winding_down = False
+            ctx.shutdown_requested = False
+            ctx.market_status_checked_at = 0.0
+        return
     market_is_active = ctx.last_known_market_active
 
     risk_defense = risk.evaluate(
-        inventory_skew=ctx.inventory.inventory_skew,
+        inventory_skew=inv.inventory_skew,
         daily_pnl=ctx.session_pnl_cents,
         market_active=market_is_active,
     )
@@ -306,8 +334,8 @@ async def quote_cycle(
     ask_ladder = gradient.build_ask_ladder(ask, ctx.config, base_qty)
     bid_ladder = gradient.build_bid_ladder(bid, ctx.config, base_qty)
 
-    intents = sanitizer.sanitize(ask_ladder + bid_ladder, defense, ctx)
-    intents = drop_buy_side_intents_when_cash_depleted(intents, ctx.inventory.cash_cents)
+    intents = sanitizer.sanitize(ask_ladder + bid_ladder, defense, ctx, inventory=inv)
+    intents = drop_buy_side_intents_when_cash_depleted(intents, inv.cash_cents)
 
     # Step 4: Execute — send order diff to API
     await order_mgr.execute_intents(intents, ctx.market_id)
@@ -390,10 +418,28 @@ async def reconcile_loop(
     reconciler: AMMReconciler,
     contexts: dict[str, MarketContext],
     interval_seconds: float,
+    inventory_cache: "InventoryCache | None" = None,
 ) -> None:
     market_ids = list(contexts)
+    n = len(market_ids)
     while not any(ctx.shutdown_requested for ctx in contexts.values()):
-        await reconciler.reconcile(market_ids)
+        # Fetch balance once per pass to ensure consistent allocation across markets.
+        # reconciler.reconcile() performs I/O (API calls + Redis writes); no lock needed.
+        # If drift is detected and inventory_cache is provided, we read the corrected
+        # inventory from cache and update ctx.inventory under lock.
+        balance_resp = await reconciler.fetch_balance()
+        for market_id in market_ids:
+            drift_result = await reconciler.reconcile(
+                [market_id], n_markets_total=n, balance_resp=balance_resp
+            )
+            if (
+                inventory_cache is not None
+                and drift_result.get(market_id, {}).get("drifted")
+            ):
+                fresh = await inventory_cache.get(market_id)
+                if fresh is not None:
+                    async with contexts[market_id].inventory_lock:
+                        contexts[market_id].inventory = fresh
         await asyncio.sleep(interval_seconds)
 
 
@@ -415,6 +461,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     token_mgr = TokenManager(base_url, username, password, http_client)
     api = AMMApiClient(base_url, token_mgr, http_client=http_client)
     inventory_cache = InventoryCache(typed_redis_client)
+    order_cache = OrderCache(typed_redis_client)
     config_loader = ConfigLoader(redis_client=typed_redis_client)
     global_cfg = await config_loader.load_global()
     health_state = HealthState()
@@ -481,6 +528,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
             ctx.oracle_deviation_threshold = _oracle_deviation_threshold
 
     tasks = []
+    market_order_managers: dict[str, OrderManager] = {}
     for ctx in contexts.values():
         poller = TradePoller(api=api, cache=inventory_cache)
         pricing = ThreeLayerPricing(
@@ -493,7 +541,16 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
         gradient = GradientEngine()
         risk = DefenseStack(ctx.config)
         sanitizer = OrderSanitizer()
-        order_mgr = OrderManager(api=api, cache=inventory_cache)
+        order_mgr = OrderManager(api=api, cache=inventory_cache, order_cache=order_cache)
+        try:
+            await order_mgr.load_from_cache(ctx.market_id)
+        except Exception as _load_err:
+            logger.warning(
+                "Could not restore orders from cache for %s (starting fresh): %s",
+                ctx.market_id, _load_err,
+            )
+            order_mgr.active_orders = {}
+        market_order_managers[ctx.market_id] = order_mgr
         phase_mgr = PhaseManager(config=ctx.config)
         market_oracle = market_oracles[ctx.market_id]
 
@@ -516,9 +573,9 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     market_task_handles.extend(tasks)
 
     # Background tasks: reconciler + per-market oracle refresh loops + health server
-    reconciler = AMMReconciler(api=api, cache=inventory_cache)
+    reconciler = AMMReconciler(api=api, inventory_cache=inventory_cache)
     background_tasks.append(asyncio.create_task(
-        reconcile_loop(reconciler, contexts, global_cfg.reconcile_interval_seconds),
+        reconcile_loop(reconciler, contexts, global_cfg.reconcile_interval_seconds, inventory_cache),
         name="reconcile-loop",
     ))
     for mid, market_oracle in market_oracles.items():
@@ -559,7 +616,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
                 if not task.done():
                     task.cancel()
         await _wait_for_task_shutdown(tasks + background_tasks, SHUTDOWN_TIMEOUT_SECONDS)
-        await shutdown.execute(contexts)
+        await shutdown.execute(contexts, order_managers=market_order_managers)
         await http_client.aclose()
         await redis_client.aclose()
 

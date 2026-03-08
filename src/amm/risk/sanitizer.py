@@ -3,6 +3,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from src.amm.models.enums import DefenseLevel
+from src.amm.models.inventory import Inventory
 from src.amm.strategy.models import OrderIntent
 from src.amm.utils.integer_math import clamp
 
@@ -20,11 +21,17 @@ class OrderSanitizer:
         intents: list[OrderIntent],
         defense: DefenseLevel,
         ctx: "MarketContext",
+        inventory: Inventory | None = None,
     ) -> list[OrderIntent]:
-        """Apply defense-level filtering and inventory constraints."""
+        """Apply defense-level filtering and inventory constraints.
+
+        Pass ``inventory`` to use a pre-snapshotted value instead of
+        reading ``ctx.inventory`` live (avoids incoherence if reconcile_loop
+        replaces ctx.inventory mid-cycle).
+        """
         result = []
         for intent in intents:
-            sanitized = self._sanitize_one(intent, defense, ctx)
+            sanitized = self._sanitize_one(intent, defense, ctx, inventory)
             if sanitized is not None:
                 result.append(sanitized)
         return result
@@ -34,6 +41,7 @@ class OrderSanitizer:
         intent: OrderIntent,
         defense: DefenseLevel,
         ctx: "MarketContext",
+        inventory: Inventory | None = None,
     ) -> OrderIntent | None:
         # AMM NEVER issues BUY orders — reject immediately
         if intent.direction != "SELL":
@@ -47,9 +55,11 @@ class OrderSanitizer:
         if intent.quantity <= 0:
             return None
 
+        inv = inventory if inventory is not None else ctx.inventory
+
         # ONE_SIDE: only allow quotes on the heavy side (reduce inventory skew)
         if defense == DefenseLevel.ONE_SIDE:
-            skew = ctx.inventory.inventory_skew
+            skew = inv.inventory_skew
             if skew > 0 and intent.side == "NO":
                 # Long YES — suppress SELL NO to force YES reduction
                 return None
@@ -59,9 +69,9 @@ class OrderSanitizer:
 
         # Inventory availability: clamp quantity to what is actually available
         if intent.side == "YES":
-            available = ctx.inventory.yes_available
+            available = inv.yes_available
         else:
-            available = ctx.inventory.no_available
+            available = inv.no_available
 
         if available <= 0:
             logger.debug("No %s inventory available — dropping intent", intent.side)

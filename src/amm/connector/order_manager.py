@@ -224,18 +224,30 @@ class OrderManager:
             await self._order_cache.clear(market_id)
 
     async def load_from_cache(self, market_id: str) -> None:
-        """Restore active_orders from Redis after restart."""
+        """Restore active_orders from Redis after restart.
+
+        Builds into a temporary dict first so that on any exception
+        active_orders is left unchanged rather than in a half-populated state.
+        """
         if self._order_cache is None:
             return
         orders = await self._order_cache.get_all_orders(market_id)
+        tmp: dict[str, ActiveOrder] = {}
         for order_id, order_data in orders.items():
-            self.active_orders[order_id] = ActiveOrder(
+            tmp[order_id] = ActiveOrder(
                 order_id=order_id,
                 side=order_data["side"],
                 direction=order_data["direction"],
                 price_cents=order_data["price_cents"],
                 remaining_quantity=order_data["remaining_quantity"],
             )
+        # Atomic replace — no partial state on success or failure above.
+        self.active_orders = tmp
+        # Always sync pending-sell counters after a successful cache read.
+        # If OrderCache returned {} (empty), there are no active orders so
+        # pending-sell should be 0 — stale Redis InventoryCache values must
+        # be cleared to avoid artificially low yes_available/no_available.
+        await self._sync_pending_sell(market_id)
 
     @staticmethod
     def _intent_fingerprint(intent: OrderIntent) -> str:
