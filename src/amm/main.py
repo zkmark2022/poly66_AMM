@@ -46,6 +46,19 @@ SHUTDOWN_TIMEOUT_SECONDS = 30.0
 _DEFENSE_SEVERITY = DEFENSE_SEVERITY  # single source of truth; avoids silent divergence
 _MARKET_STATUS_TTL = 30.0  # seconds between live market-status API fetches
 
+# Transient network/server errors that are safe to retry at the market-loop level.
+# httpx.HTTPStatusError for retryable status codes (429/502/503/504) is included
+# because AMMApiClient raises it after its own retry budget is exhausted; these
+# failures are still transient and should not trigger immediate shutdown.
+_RECOVERABLE_EXCEPTIONS = (
+    httpx.TimeoutException,
+    httpx.TransportError,
+    ConnectionError,
+    asyncio.TimeoutError,
+)
+_RECOVERABLE_HTTP_STATUS = frozenset({429, 502, 503, 504})
+_MAX_CONSECUTIVE_FAILURES = 5
+
 
 def _build_signal_handler(
     contexts: dict[str, MarketContext],
@@ -300,16 +313,6 @@ async def quote_cycle(
     await order_mgr.execute_intents(intents, ctx.market_id)
 
 
-_RECOVERABLE_EXCEPTIONS = (
-    httpx.TimeoutException,
-    httpx.TransportError,
-    ConnectionError,
-    asyncio.TimeoutError,
-)
-
-_MAX_CONSECUTIVE_FAILURES = 5
-
-
 async def run_market(
     ctx: MarketContext,
     services: dict[str, Any],
@@ -325,6 +328,30 @@ async def run_market(
             consecutive_failures = 0
         except asyncio.CancelledError:
             raise
+        except httpx.HTTPStatusError as e:
+            # Treat exhausted-retry transient HTTP errors as recoverable; hard
+            # client/server errors (400, 404, 500, …) remain unrecoverable.
+            if e.response.status_code in _RECOVERABLE_HTTP_STATUS:
+                consecutive_failures += 1
+                logger.warning(
+                    "Recoverable HTTP %d for %s (%d/%d): %s",
+                    e.response.status_code, ctx.market_id,
+                    consecutive_failures, _MAX_CONSECUTIVE_FAILURES, e,
+                )
+                if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                    logger.error(
+                        "Too many consecutive failures for %s, triggering shutdown",
+                        ctx.market_id,
+                    )
+                    ctx.shutdown_requested = True
+                    raise
+            else:
+                logger.error(
+                    "Unrecoverable HTTP %d for %s: %s",
+                    e.response.status_code, ctx.market_id, e, exc_info=True,
+                )
+                ctx.shutdown_requested = True
+                raise
         except _RECOVERABLE_EXCEPTIONS as e:
             consecutive_failures += 1
             logger.warning(

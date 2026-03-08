@@ -111,12 +111,17 @@ class ASEngine:
             if ask <= bid:
                 bid = max(1, ask - 1)
 
-        # Log when boundary shrinks spread below min (acceptable at price extremes)
+        # Log when boundary clamping produces out-of-range spread
         actual_spread = ask - bid
         if actual_spread < spread_min_cents:
             logger.debug(
                 "spread %dc < min %dc at boundary price %.1f",
                 actual_spread, spread_min_cents, r,
+            )
+        elif actual_spread > spread_max_cents:
+            logger.debug(
+                "spread %dc > max %dc at boundary price %.1f",
+                actual_spread, spread_max_cents, r,
             )
 
         return ask, bid

@@ -1,6 +1,7 @@
 """Integration tests for the AMM quote cycle orchestrator."""
 from __future__ import annotations
 
+import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -182,7 +183,6 @@ class TestQuoteCycle:
         services = _make_services()
         services["order_mgr"].execute_intents.side_effect = TypeError("bug: bad type")
 
-        import pytest
         with pytest.raises(TypeError, match="bug"):
             await run_market(ctx, services)
 

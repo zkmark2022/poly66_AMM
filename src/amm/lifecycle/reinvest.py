@@ -43,7 +43,16 @@ async def maybe_auto_reinvest(
     ctx.inventory.no_cost_sum_cents += quantity * 50
 
     if inventory_cache is not None:
-        await inventory_cache.set(ctx.market_id, ctx.inventory)
+        # Use field-level atomic increments to avoid overwriting concurrent
+        # updates to yes_pending_sell / no_pending_sell from order_manager.
+        await inventory_cache.adjust(
+            ctx.market_id,
+            yes_delta=quantity,
+            no_delta=quantity,
+            cash_delta=-(quantity * PAIR_COST_CENTS),
+            yes_cost_delta=quantity * 50,
+            no_cost_delta=quantity * 50,
+        )
 
     return quantity
 

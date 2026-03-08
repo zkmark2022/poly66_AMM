@@ -433,8 +433,9 @@ class TestInitializerSetsMarketActiveTrue:
             "MarketContext.last_known_market_active must be True after initialization "
             "(market was verified active by AMMInitializer)"
         )
-        assert ctx.market_status_checked_at > 0.0, (
-            "market_status_checked_at must be set to current monotonic time after initialization"
+        assert ctx.market_status_checked_at == 0.0, (
+            "market_status_checked_at must be 0.0 after initialization so the first "
+            "quote cycle triggers an immediate live market-status revalidation"
         )
 
 
@@ -443,7 +444,7 @@ class TestInitializerSetsMarketActiveTrue:
 # ---------------------------------------------------------------------------
 
 class TestAutoReinvestSyncsCache:
-    """maybe_auto_reinvest() must call inventory_cache.set() after successful mint."""
+    """maybe_auto_reinvest() must call inventory_cache.adjust() after successful mint."""
 
     @pytest.mark.asyncio
     async def test_reinvest_syncs_inventory_to_redis(self) -> None:
@@ -462,9 +463,13 @@ class TestAutoReinvestSyncsCache:
         )
 
         assert minted > 0, "Should have minted pairs"
-        mock_inv_cache.set.assert_called_once_with("mkt-1", ctx.inventory), (
-            "inventory_cache.set() must be called with market_id and updated inventory"
+        mock_inv_cache.adjust.assert_called_once(), (
+            "inventory_cache.adjust() must be called with mint deltas"
         )
+        call_kwargs = mock_inv_cache.adjust.call_args.kwargs
+        assert call_kwargs["yes_delta"] == minted
+        assert call_kwargs["no_delta"] == minted
+        assert call_kwargs["cash_delta"] == -(minted * 100)
 
     @pytest.mark.asyncio
     async def test_reinvest_no_sync_when_no_mint(self) -> None:
@@ -483,7 +488,7 @@ class TestAutoReinvestSyncsCache:
         )
 
         assert minted == 0
-        mock_inv_cache.set.assert_not_called()
+        mock_inv_cache.adjust.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_reinvest_accepts_none_cache(self) -> None:
