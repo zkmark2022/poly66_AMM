@@ -100,7 +100,7 @@ async def test_spread_is_positive_for_any_tau(tau: float) -> None:
     """Effective ask–bid spread must be non-negative for all tau values."""
     _, intents = await _run(tau)
     spread = compute_effective_spread(intents)
-    assert spread >= 0, (
+    assert spread is not None and spread >= 0, (
         f"tau={tau}: negative spread={spread}. "
         f"Intents: {[(i.side, i.price_cents) for i in intents]}"
     )
@@ -144,8 +144,8 @@ async def test_tau24_spread_geq_tau0_spread() -> None:
     spread_0 = compute_effective_spread(intents_0)
     spread_24 = compute_effective_spread(intents_24)
 
-    assert spread_0 >= 0, f"τ=0 spread should be non-negative, got {spread_0}"
-    assert spread_24 >= 0, f"τ=24 spread should be non-negative, got {spread_24}"
+    assert spread_0 is not None and spread_0 >= 0, f"τ=0 spread should be non-negative, got {spread_0}"
+    assert spread_24 is not None and spread_24 >= 0, f"τ=24 spread should be non-negative, got {spread_24}"
     assert spread_24 >= spread_0, (
         f"Expected spread(τ=24)={spread_24} ≥ spread(τ=0)={spread_0}. "
         "A-S formula: δ(τ) = (γσ²τ + depth) × 100 — adding τ term increases spread."

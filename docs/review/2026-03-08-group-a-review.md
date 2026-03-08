@@ -195,12 +195,9 @@ async def test_both_sides_in_single_cycle(self) -> None:
 ### T-SIM-03
 ```python
 @pytest.mark.parametrize("skew_yes,skew_no,expected_level", [
-    (229, 200, DefenseLevel.NORMAL),   # skew = 0.068 < 0.30
-    (237, 200, DefenseLevel.WIDEN),    # skew = 0.085... 不对，重新算
     # skew = (yes - no) / (yes + no)
-    # 0.299 → (yes-no)/(yes+no) < 0.30
-    # yes=399, no=200 → skew = 199/599 ≈ 0.332 (WIDEN)
-    # yes=329, no=200 → skew = 129/529 ≈ 0.244 (NORMAL)
+    # yes=329, no=200 → skew = 129/529 ≈ 0.244 (NORMAL, below 0.30 threshold)
+    # yes=399, no=200 → skew = 199/599 ≈ 0.332 (WIDEN, above 0.30 threshold)
     (329, 200, DefenseLevel.NORMAL),   # just below threshold
     (399, 200, DefenseLevel.WIDEN),    # just above threshold
 ])

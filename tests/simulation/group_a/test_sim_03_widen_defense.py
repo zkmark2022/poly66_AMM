@@ -121,11 +121,11 @@ class TestWidenDefense:
         spread_widen = compute_effective_spread(intents_widen)
         spread_normal = compute_effective_spread(intents_normal)
 
-        assert spread_normal > 0, (
+        assert spread_normal is not None and spread_normal > 0, (
             f"Test setup error: normal spread = {spread_normal} (expected > 0). "
             f"Intents: {intents_normal}"
         )
-        assert spread_widen > 0, (
+        assert spread_widen is not None and spread_widen > 0, (
             f"WIDEN spread = {spread_widen} (expected > 0). "
             f"Intents: {intents_widen}"
         )

@@ -5,6 +5,7 @@ test scenarios without duplicating mock setup.
 """
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock
 
 from src.amm.config.models import MarketConfig
@@ -56,7 +57,7 @@ def make_inventory(
 def make_config(
     market_id: str = "sim-mkt-test",
     remaining_hours: float | None = 24.0,
-    **overrides,
+    **overrides: Any,
 ) -> MarketConfig:
     """Build a MarketConfig with simulation-friendly defaults.
 
@@ -64,7 +65,7 @@ def make_config(
     preventing keyword-collision errors when callers pass fields like
     ``inventory_skew_widen`` explicitly.
     """
-    defaults: dict = {
+    defaults: dict[str, Any] = {
         "remaining_hours_override": remaining_hours,
         "anchor_price_cents": 50,
         "spread_min_cents": 2,
@@ -96,6 +97,7 @@ def make_context(
         market_id=market_id,
         config=cfg,
         inventory=inv,
+        initial_inventory_value_cents=inv.total_value_cents(cfg.anchor_price_cents),
         last_known_market_active=market_active,
         # Set far in the past so market-status TTL triggers, but we mock the
         # API call so the result is deterministic.
@@ -154,7 +156,7 @@ class CapturingOrderManager:
 
     # Delegate attribute access to the inner mock so quote_cycle sees
     # a compatible object.
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self._mock, name)
 
     @property
@@ -174,7 +176,7 @@ def make_real_services(
     inventory_cache: AsyncMock | None = None,
     order_mgr: CapturingOrderManager | None = None,
     phase_mgr: PhaseManager | None = None,
-) -> tuple[dict, CapturingOrderManager]:
+) -> tuple[dict[str, Any], CapturingOrderManager]:
     """Build a services dict with real strategy/risk objects and mock I/O.
 
     Returns (services_dict, capturing_order_manager).
@@ -211,18 +213,18 @@ def make_real_services(
 # Spread computation helper
 # ---------------------------------------------------------------------------
 
-def compute_effective_spread(intents: list[OrderIntent]) -> int:
+def compute_effective_spread(intents: list[OrderIntent]) -> int | None:
     """Compute effective YES-price spread from submitted order intents.
 
     YES SELL intents  → ask side (price = YES ask)
     NO  SELL intents  → bid side (YES-equiv bid = 100 - NO_ask)
 
-    Returns ask_yes - bid_yes_equiv, or -1 if either side is missing.
+    Returns ask_yes - bid_yes_equiv, or None if either side is missing.
     """
     yes_prices = [i.price_cents for i in intents if i.side == "YES" and i.direction == "SELL"]
     no_prices = [i.price_cents for i in intents if i.side == "NO" and i.direction == "SELL"]
     if not yes_prices or not no_prices:
-        return -1
+        return None
     effective_ask = min(yes_prices)
     effective_bid = 100 - min(no_prices)   # convert lowest NO price to YES bid
     return effective_ask - effective_bid
