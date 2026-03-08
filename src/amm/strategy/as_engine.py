@@ -67,6 +67,7 @@ class ASEngine:
     def compute_quotes(
         self, mid_price: int, inventory_skew: float,
         gamma: float, sigma: float, tau_hours: float, kappa: float,
+        spread_min_cents: int = 2, spread_max_cents: int = 20,
     ) -> tuple[int, int]:
         """Compute ask and bid prices. Returns (ask_cents, bid_cents)."""
         r = self.reservation_price(mid_price, inventory_skew, gamma, sigma, tau_hours)
@@ -79,6 +80,48 @@ class ASEngine:
         bid = clamp(math.floor(bid_raw), 1, 99)
 
         if ask <= bid:
-            ask = min(bid + 1, 99)
+            # When both clamp to the same boundary (e.g., r >> 99 → both become 99),
+            # pushing ask up fails. Lower bid instead.
+            ask = min(99, bid + 1)
+            if ask <= bid:
+                bid = max(1, ask - 1)
+
+        if spread_min_cents > spread_max_cents:
+            raise ValueError(
+                f"spread_min_cents={spread_min_cents} > spread_max_cents={spread_max_cents}"
+            )
+
+        # Enforce spread constraints
+        def _recalculate_spread(spread_to_enforce: int) -> tuple[int, int]:
+            half = spread_to_enforce // 2
+            mid_r = round(r)
+            new_ask = clamp(mid_r + (spread_to_enforce - half), 1, 99)
+            new_bid = clamp(mid_r - half, 1, 99)
+            return new_ask, new_bid
+
+        if ask - bid < spread_min_cents:
+            ask, bid = _recalculate_spread(spread_min_cents)
+
+        if ask - bid > spread_max_cents:
+            ask, bid = _recalculate_spread(spread_max_cents)
+
+        # Re-check after boundary clamping (same two-step logic as above)
+        if ask <= bid:
+            ask = min(99, bid + 1)
+            if ask <= bid:
+                bid = max(1, ask - 1)
+
+        # Log when boundary clamping produces out-of-range spread
+        actual_spread = ask - bid
+        if actual_spread < spread_min_cents:
+            logger.debug(
+                "spread %dc < min %dc at boundary price %.1f",
+                actual_spread, spread_min_cents, r,
+            )
+        elif actual_spread > spread_max_cents:
+            logger.debug(
+                "spread %dc > max %dc at boundary price %.1f",
+                actual_spread, spread_max_cents, r,
+            )
 
         return ask, bid

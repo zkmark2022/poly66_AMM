@@ -46,6 +46,19 @@ SHUTDOWN_TIMEOUT_SECONDS = 30.0
 _DEFENSE_SEVERITY = DEFENSE_SEVERITY  # single source of truth; avoids silent divergence
 _MARKET_STATUS_TTL = 30.0  # seconds between live market-status API fetches
 
+# Transient network/server errors that are safe to retry at the market-loop level.
+# httpx.HTTPStatusError for retryable status codes (429/502/503/504) is included
+# because AMMApiClient raises it after its own retry budget is exhausted; these
+# failures are still transient and should not trigger immediate shutdown.
+_RECOVERABLE_EXCEPTIONS = (
+    httpx.TimeoutException,
+    httpx.TransportError,
+    ConnectionError,
+    asyncio.TimeoutError,
+)
+_RECOVERABLE_HTTP_STATUS = frozenset({429, 502, 503, 504})
+_MAX_CONSECUTIVE_FAILURES = 5
+
 
 def _build_signal_handler(
     contexts: dict[str, MarketContext],
@@ -184,7 +197,7 @@ async def quote_cycle(
     if fresh is not None:
         ctx.inventory = fresh
     if ctx.phase == Phase.STABILIZATION:
-        await maybe_auto_reinvest(ctx, api)
+        await maybe_auto_reinvest(ctx, api, inventory_cache=inventory_cache)
 
     # Step 1.5: Update phase based on trade count and elapsed time
     if phase_mgr is not None:
@@ -228,6 +241,8 @@ async def quote_cycle(
         sigma=sigma,
         tau_hours=tau,
         kappa=kappa,
+        spread_min_cents=ctx.config.spread_min_cents,
+        spread_max_cents=ctx.config.spread_max_cents,
     )
 
     base_qty = max(1, ctx.config.initial_mint_quantity // (ctx.config.gradient_levels * 2))
@@ -306,11 +321,56 @@ async def run_market(
     """Run quote cycles for a single market until shutdown requested."""
     cycle_services = dict(services)
     cycle_services.setdefault("oracle", oracle)
+    consecutive_failures = 0
     while not ctx.shutdown_requested:
         try:
             await quote_cycle(ctx, **cycle_services)
+            consecutive_failures = 0
+        except asyncio.CancelledError:
+            raise
+        except httpx.HTTPStatusError as e:
+            # Treat exhausted-retry transient HTTP errors as recoverable; hard
+            # client/server errors (400, 404, 500, …) remain unrecoverable.
+            if e.response.status_code in _RECOVERABLE_HTTP_STATUS:
+                consecutive_failures += 1
+                logger.warning(
+                    "Recoverable HTTP %d for %s (%d/%d): %s",
+                    e.response.status_code, ctx.market_id,
+                    consecutive_failures, _MAX_CONSECUTIVE_FAILURES, e,
+                )
+                if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                    logger.error(
+                        "Too many consecutive failures for %s, triggering shutdown",
+                        ctx.market_id,
+                    )
+                    ctx.shutdown_requested = True
+                    raise
+            else:
+                logger.error(
+                    "Unrecoverable HTTP %d for %s: %s",
+                    e.response.status_code, ctx.market_id, e, exc_info=True,
+                )
+                ctx.shutdown_requested = True
+                raise
+        except _RECOVERABLE_EXCEPTIONS as e:
+            consecutive_failures += 1
+            logger.warning(
+                "Recoverable error for %s (%d/%d): %s",
+                ctx.market_id, consecutive_failures, _MAX_CONSECUTIVE_FAILURES, e,
+            )
+            if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                logger.error(
+                    "Too many consecutive failures for %s, triggering shutdown",
+                    ctx.market_id,
+                )
+                ctx.shutdown_requested = True
+                raise
         except Exception as e:
-            logger.error("Quote cycle error for %s: %s", ctx.market_id, e, exc_info=True)
+            logger.error(
+                "Unrecoverable error for %s: %s", ctx.market_id, e, exc_info=True,
+            )
+            ctx.shutdown_requested = True
+            raise
         await asyncio.sleep(ctx.config.quote_interval_seconds)
 
 
@@ -356,7 +416,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     api = AMMApiClient(base_url, token_mgr, http_client=http_client)
     inventory_cache = InventoryCache(typed_redis_client)
     config_loader = ConfigLoader(redis_client=typed_redis_client)
-    await config_loader.load_global()
+    global_cfg = await config_loader.load_global()
     health_state = HealthState()
 
     # Initialize
@@ -458,7 +518,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     # Background tasks: reconciler + per-market oracle refresh loops + health server
     reconciler = AMMReconciler(api=api, cache=inventory_cache)
     background_tasks.append(asyncio.create_task(
-        reconcile_loop(reconciler, contexts, 300.0),
+        reconcile_loop(reconciler, contexts, global_cfg.reconcile_interval_seconds),
         name="reconcile-loop",
     ))
     for mid, market_oracle in market_oracles.items():

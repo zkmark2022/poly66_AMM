@@ -187,8 +187,11 @@ class TestWidenDefenseInQuoteCycle:
                     f"WIDEN ask {max(widen_asks)} should be >= normal ask {max(normal_asks)}"
                 )
             if normal_bids and widen_bids:
-                assert min(widen_bids) <= min(normal_bids), (
-                    f"WIDEN bid {min(widen_bids)} should be <= normal bid {min(normal_bids)}"
+                # bid_ladder maps bid_YES → NO sell price via (100 - bid_YES).
+                # WIDEN lowers bid_YES → raises NO sell price. Both sides become
+                # more expensive for the counterparty.
+                assert max(widen_bids) >= max(normal_bids), (
+                    f"WIDEN NO prices {widen_bids} should be >= normal NO prices {normal_bids}"
                 )
 
 
