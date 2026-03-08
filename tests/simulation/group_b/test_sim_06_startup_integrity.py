@@ -23,7 +23,9 @@ from src.amm.connector.order_manager import OrderManager
 from src.amm.connector.trade_poller import TradePoller
 from src.amm.lifecycle.health import HealthState, create_health_app
 from src.amm.lifecycle.reconciler import AMMReconciler
-from src.amm.main import quote_cycle
+import httpx
+
+from src.amm.main import quote_cycle, reconcile_loop
 from src.amm.models.enums import Phase
 from src.amm.models.inventory import Inventory
 from src.amm.models.market_context import MarketContext
@@ -82,7 +84,7 @@ async def test_reconciler_called_at_least_once(
     mock_exchange: dict,
     fake_redis_async,
 ) -> None:
-    """Reconciler.reconcile() is invoked at least once during operation."""
+    """reconcile_loop calls reconciler.reconcile for each market in each iteration."""
     config = _make_config()
     ctx = _make_context(config)
     client = mock_exchange["client"]
@@ -98,22 +100,41 @@ async def test_reconciler_called_at_least_once(
     spy_reconcile = AsyncMock(wraps=reconciler.reconcile)
     reconciler.reconcile = spy_reconcile
 
-    # Simulate one reconcile call (as main.py does in reconcile_loop)
-    await reconciler.reconcile([config.market_id])
+    contexts = {config.market_id: ctx}
 
-    assert spy_reconcile.call_count >= 1, "Reconciler must be called at least once"
+    # Stop the loop after the first iteration by setting shutdown_requested in fake sleep
+    async def _stop_after_one(seconds: float) -> None:
+        ctx.shutdown_requested = True
+
+    with patch("asyncio.sleep", side_effect=_stop_after_one):
+        await reconcile_loop(
+            reconciler, contexts, interval_seconds=0.01, inventory_cache=cache
+        )
+
+    assert spy_reconcile.call_count >= 1, (
+        f"reconcile_loop must invoke reconciler.reconcile at least once; got {spy_reconcile.call_count}"
+    )
 
 
 @pytest.mark.asyncio
 async def test_health_endpoint_bound() -> None:
-    """Health server /health endpoint is created and responds correctly."""
+    """Health server /health and /readiness endpoints respond correctly at runtime."""
     state = HealthState(ready=True, markets_active=2)
     app = create_health_app(state)
 
-    # Verify the app has the /health route
-    routes = [route.path for route in app.routes]
-    assert "/health" in routes, f"/health not found in routes: {routes}"
-    assert "/readiness" in routes, f"/readiness not found in routes: {routes}"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        health_resp = await client.get("/health")
+        readiness_resp = await client.get("/readiness")
+
+    assert health_resp.status_code == 200
+    health_data = health_resp.json()
+    assert health_data["status"] == "ok"
+    assert health_data["markets_active"] == 2
+
+    assert readiness_resp.status_code == 200
+    assert readiness_resp.json()["ready"] is True
 
 
 @pytest.mark.asyncio

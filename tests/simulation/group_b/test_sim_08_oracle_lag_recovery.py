@@ -93,18 +93,16 @@ class ControllableOracle:
 
 
 def _extract_spread(orders_placed: list[dict]) -> int | None:
-    """Extract spread from placed orders: max(YES prices) - min(NO mapped prices)."""
+    """Extract spread from placed orders: min(YES ask) - max(YES bid mapped from NO).
+
+    Returns None if only one side is present (ONE_SIDE mode) — spread is undefined
+    for a one-sided market.
+    """
     yes_prices = [o["price_cents"] for o in orders_placed if o.get("side") == "YES"]
     no_prices = [o["price_cents"] for o in orders_placed if o.get("side") == "NO"]
 
     if not yes_prices or not no_prices:
-        # ONE_SIDE mode: only one side has orders
-        # Return a large spread indicator for ONE_SIDE mode
-        if yes_prices:
-            return max(yes_prices) - min(yes_prices) + 50  # artificially wide
-        if no_prices:
-            return max(no_prices) - min(no_prices) + 50
-        return None
+        return None  # ONE_SIDE mode: bilateral spread is undefined
 
     # ask (YES SELL) lowest price vs bid (mapped from NO SELL: bid = 100 - no_price)
     min_ask = min(yes_prices)
@@ -202,9 +200,9 @@ async def test_oracle_lag_widens_spread_then_recovers(
     for _ in range(3):
         await quote_cycle(ctx, **deps2, oracle=oracle)
 
-    # STALE oracle → ONE_SIDE defense
-    assert ctx.defense_level in (DefenseLevel.ONE_SIDE, DefenseLevel.WIDEN, DefenseLevel.KILL_SWITCH), (
-        f"Expected escalated defense during STALE, got {ctx.defense_level}"
+    # STALE oracle → ONE_SIDE defense (STALE maps precisely to ONE_SIDE, not WIDEN/KILL)
+    assert ctx.defense_level == DefenseLevel.ONE_SIDE, (
+        f"Expected ONE_SIDE defense during STALE oracle, got {ctx.defense_level}"
     )
 
     spread_passive = _extract_spread_from_active(order_mgr2)
@@ -230,8 +228,8 @@ async def test_oracle_lag_widens_spread_then_recovers(
     spread_recovered = _extract_spread_from_active(order_mgr3)
     assert spread_recovered is not None, "Should produce bilateral orders after recovery"
 
-    # spread_recovered should be close to spread_normal
-    tolerance = max(3, abs(spread_normal))
+    # spread_recovered should be close to spread_normal (fixed 5-cent tolerance)
+    tolerance = 5
     assert abs(spread_recovered - spread_normal) <= tolerance, (
         f"Recovered spread ({spread_recovered}) should be close to "
         f"normal spread ({spread_normal}), diff={abs(spread_recovered - spread_normal)}"

@@ -241,3 +241,13 @@ async def test_oracle_deadlock_no_exceptions(
         risk, sanitizer, order_mgr, cache,
         oracle=oracle,
     )
+
+    # After STALE→NORMAL transition, defense should not be KILL_SWITCH
+    assert ctx.defense_level != DefenseLevel.KILL_SWITCH, (
+        "Oracle STALE→NORMAL transition should not escalate to KILL_SWITCH"
+    )
+    # At least some orders were placed across both cycles
+    orders_placed = mock_exchange["orders_placed"]
+    assert len(orders_placed) > 0, (
+        "At least one order should be placed across the two cycles"
+    )

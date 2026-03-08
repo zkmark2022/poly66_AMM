@@ -174,9 +174,9 @@ async def test_restart_recovery_inventory_preserved(
         "Instance B should have active orders after recovering state from Redis"
     )
 
-    # Prices should be in normal range (near mid=50), not extremes
+    # Prices should be in normal range (near mid=50, anchor=50), not extremes
     for order in order_mgr_b.active_orders.values():
-        assert 1 <= order.price_cents <= 99, f"Order price {order.price_cents} out of range"
+        assert 35 <= order.price_cents <= 65, f"Order price {order.price_cents} out of expected range after recovery"
 
     # Cleanup
     await shared_redis.aclose()

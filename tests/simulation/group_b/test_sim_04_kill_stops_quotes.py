@@ -105,9 +105,41 @@ async def test_kill_switch_stops_quoting(
     sanitizer = OrderSanitizer()
     order_mgr = OrderManager(api=api, cache=cache)
 
-    # Pre-KILL: Place a "pre-existing" order via order_mgr
-    # We simulate this by running a normal cycle first with balanced inventory
-    # Then switch to skewed inventory
+    # Pre-KILL: Run one normal cycle with balanced inventory so order_mgr has active orders.
+    # This makes the subsequent batch-cancel call meaningful (cancelling real pre-existing orders).
+    balanced_inv = Inventory(
+        cash_cents=50_000,
+        yes_volume=1000,
+        no_volume=1000,
+        yes_cost_sum_cents=50_000,
+        no_cost_sum_cents=50_000,
+        yes_pending_sell=0,
+        no_pending_sell=0,
+        frozen_balance_cents=0,
+    )
+    from src.amm.models.market_context import MarketContext as _MC
+    import time as _time
+    balanced_ctx = _MC(
+        market_id=config.market_id,
+        config=config,
+        inventory=balanced_inv,
+        initial_inventory_value_cents=balanced_inv.total_value_cents(50),
+        last_known_market_active=True,
+        market_status_checked_at=_time.monotonic(),
+    )
+    await cache.set(config.market_id, balanced_inv)
+    await quote_cycle(
+        balanced_ctx, api, poller, pricing, as_engine, gradient,
+        risk, sanitizer, order_mgr, cache,
+    )
+    assert len(order_mgr.active_orders) > 0, (
+        "Pre-existing orders must exist before KILL_SWITCH scenario"
+    )
+    # Reset cache to skewed inventory for the KILL cycles
+    await cache.set(config.market_id, ctx.inventory)
+
+    # Snapshot order count before KILL cycles to isolate assertions to KILL phase
+    orders_before_kill = len(orders_placed)
 
     # Run 3 cycles with KILL-triggering inventory
     for _ in range(3):
@@ -121,9 +153,10 @@ async def test_kill_switch_stops_quoting(
         f"Expected KILL_SWITCH, got {ctx.defense_level}"
     )
 
-    # Assert 2: No orders were placed (KILL returns before execute_intents)
-    assert len(orders_placed) == 0, (
-        f"Expected 0 orders placed during KILL, got {len(orders_placed)}"
+    # Assert 2: No NEW orders placed during KILL (KILL returns before execute_intents)
+    orders_during_kill = len(orders_placed) - orders_before_kill
+    assert orders_during_kill == 0, (
+        f"Expected 0 orders placed during KILL, got {orders_during_kill}"
     )
 
     # Assert 3: Batch-cancel was called (existing orders cancelled)
@@ -201,3 +234,9 @@ async def test_kill_from_pnl_loss(
 
     assert ctx.defense_level == DefenseLevel.KILL_SWITCH
     assert len(orders_placed) == 0
+
+    call_log = mock_exchange["call_log"]
+    cancel_calls = [c for c in call_log if c["path"] == "/amm/orders/batch-cancel"]
+    assert len(cancel_calls) >= 1, (
+        "KILL_SWITCH triggered by P&L loss must call batch-cancel to clear existing orders"
+    )
