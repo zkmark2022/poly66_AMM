@@ -30,9 +30,10 @@ def _default_positions(market_id: str) -> dict:
     return {
         "data": {
             "market_id": market_id,
-            "yes_shares": 1000,
-            "no_shares": 1000,
-            "cash_cents": 50_000,
+            "yes_volume": 1000,
+            "no_volume": 1000,
+            "yes_cost_sum_cents": 50_000,
+            "no_cost_sum_cents": 50_000,
         }
     }
 
@@ -46,11 +47,11 @@ def _default_trades() -> dict:
 
 
 def _default_balance() -> dict:
-    return {"data": {"balance_cents": 100_000, "frozen_cents": 0}}
+    return {"data": {"balance_cents": 100_000, "frozen_balance_cents": 0}}
 
 
 @pytest.fixture()
-def mock_exchange() -> Any:
+async def mock_exchange() -> Any:
     """Mock exchange yielding an httpx.AsyncClient with call recording."""
     orders_placed: list[dict] = []
     orders_cancelled: list[str] = []
@@ -137,12 +138,15 @@ def mock_exchange() -> Any:
 
         client = httpx.AsyncClient(base_url=base_url)
 
-        yield {
-            "client": client,
-            "orders_placed": orders_placed,
-            "orders_cancelled": orders_cancelled,
-            "call_log": call_log,
-        }
+        try:
+            yield {
+                "client": client,
+                "orders_placed": orders_placed,
+                "orders_cancelled": orders_cancelled,
+                "call_log": call_log,
+            }
+        finally:
+            await client.aclose()
 
 
 # ---------------------------------------------------------------------------
@@ -196,12 +200,11 @@ def make_market_config() -> Callable[..., MarketConfig]:
         tau_hours: float = 24.0,
         mid_price: float = 0.50,
     ) -> MarketConfig:
-        anchor_cents = int(mid_price * 100)
-        total_shares = yes_volume + no_volume
+        anchor_cents = round(mid_price * 100)
         return MarketConfig(
             market_id=market_id,
             anchor_price_cents=anchor_cents,
-            initial_mint_quantity=total_shares,
+            initial_mint_quantity=yes_volume,
             remaining_hours_override=tau_hours,
             max_daily_loss_cents=cash_cents,
             max_per_market_loss_cents=cash_cents // 2,
