@@ -288,7 +288,7 @@ def _default_balance() -> dict[str, Any]:
 
 
 @pytest.fixture()
-def mock_exchange() -> Any:
+async def mock_exchange() -> Any:
     orders_placed: list[dict[str, Any]] = []
     orders_cancelled: list[str] = []
     call_log: list[dict[str, Any]] = []
@@ -327,7 +327,7 @@ def mock_exchange() -> Any:
         def _handle_batch_cancel(request: httpx.Request) -> httpx.Response:
             body = _json_body(request)
             call_log.append({"method": "POST", "path": "/amm/orders/batch-cancel", "body": body})
-            return httpx.Response(200, json={"data": {"cancelled": body.get("market_id", "")}})
+            return httpx.Response(200, json={"data": {"cancelled": 1}})
 
         def _handle_replace(request: httpx.Request) -> httpx.Response:
             body = _json_body(request)
@@ -359,8 +359,7 @@ def mock_exchange() -> Any:
             "orders_cancelled": orders_cancelled,
             "call_log": call_log,
         }
-        import asyncio
-        asyncio.run(client.aclose())
+        await client.aclose()
 
 
 @pytest.fixture()
