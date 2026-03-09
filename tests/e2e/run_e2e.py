@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import signal
 import subprocess
 import sys
 import time
@@ -236,7 +235,7 @@ def test_e2e_03_kill(amm_token: str, demo_token: str) -> TestResult:
     before_no_asks = len(orderbook_before.get("data", {}).get("no", {}).get("asks", []))
 
     # 2. Kill AMM bot process
-    result = subprocess.run(["pkill", "-f", "src.amm.main"], capture_output=True)
+    subprocess.run(["pkill", "-f", "src.amm.main"], capture_output=True)
     time.sleep(5)  # Wait for shutdown + order cancellation
 
     # 3. Check orderbook after kill
@@ -245,11 +244,9 @@ def test_e2e_03_kill(amm_token: str, demo_token: str) -> TestResult:
 
     after_yes_asks = orderbook_after.get("data", {}).get("yes", {}).get("asks", [])
     after_no_asks = orderbook_after.get("data", {}).get("no", {}).get("asks", [])
-    after_yes_bids = orderbook_after.get("data", {}).get("yes", {}).get("bids", [])
 
     # AMM orders should be gone or significantly reduced
     # Note: there may be other users' orders remaining
-    after_total = len(after_yes_asks) + len(after_no_asks)
 
     # The key assertion: fewer orders after kill
     orders_reduced = (len(after_yes_asks) < before_yes_asks) or (len(after_no_asks) < before_no_asks)
