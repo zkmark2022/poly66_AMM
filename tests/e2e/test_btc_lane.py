@@ -20,6 +20,7 @@ from tests.simulation.conftest import (
 )
 
 BTC_MARKET_ID = "MKT-BTC-100K-2026"
+BASE_MARKET_ID = "base-market"
 
 # BTC markets have higher anchor price (65c YES = strong BTC bull lean)
 # and a larger spread range to reflect higher price uncertainty.
@@ -32,7 +33,7 @@ BTC_CONFIG_OVERRIDES = {
     "gradient_quantity_decay": 0.5,
     "initial_mint_quantity": 600,
     "defense_cooldown_cycles": 3,
-    "kappa": 1.2,
+    "kappa": 1.2,  # lower kappa → thinner book → wider spread (intentional for high-vol)
     "exploration_duration_hours": 1.0,
     "stabilization_volume_threshold": 5,
 }
@@ -76,9 +77,9 @@ async def test_btc_lane_quotes_both_sides() -> None:
 async def test_btc_lane_wider_spread_than_baseline() -> None:
     """BTC-E2E-02: High-volatility BTC config produces wider spread than baseline."""
     # Baseline
-    base_cfg = make_config(market_id="base-market", **BASELINE_CONFIG_OVERRIDES)
+    base_cfg = make_config(market_id=BASE_MARKET_ID, **BASELINE_CONFIG_OVERRIDES)
     base_ctx = make_context(
-        market_id="base-market",
+        market_id=BASE_MARKET_ID,
         inventory=make_inventory(yes_volume=200, no_volume=200),
         config=base_cfg,
     )
@@ -98,9 +99,12 @@ async def test_btc_lane_wider_spread_than_baseline() -> None:
     base_spread = compute_effective_spread(base_mgr.all_intents)
     btc_spread = compute_effective_spread(btc_mgr.all_intents)
 
-    # BTC should have non-negative effective spread (valid quoting state).
     assert btc_spread >= 0, f"BTC spread invalid: {btc_spread}"
     assert base_spread >= 0, f"Baseline spread invalid: {base_spread}"
+    assert btc_spread > base_spread, (
+        f"Expected BTC spread {btc_spread} > baseline {base_spread}: "
+        "high-vol BTC config must produce a wider effective spread"
+    )
 
 
 @pytest.mark.asyncio
@@ -116,5 +120,5 @@ async def test_btc_lane_never_emits_buy_intents() -> None:
 
     await quote_cycle(ctx, **services)
 
-    buy_intents = [i for i in order_mgr.all_intents if i.direction != "SELL"]
+    buy_intents = [i for i in order_mgr.all_intents if i.direction == "BUY"]
     assert buy_intents == [], f"AMM must never emit BUY intents; got: {buy_intents}"
