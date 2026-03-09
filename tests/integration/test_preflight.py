@@ -37,8 +37,9 @@ class TestStatus:
     def test_fail_is_falsy(self) -> None:
         assert not Status.FAIL
 
-    def test_skip_is_falsy(self) -> None:
-        assert not Status.SKIP
+    def test_skip_is_truthy(self) -> None:
+        # SKIP is acceptable (preflight can proceed), so it's truthy — consistent with all_passed
+        assert Status.SKIP
 
 
 # --- CheckResult model ---
@@ -168,6 +169,19 @@ class TestMarketStatus:
         assert results[0].status == Status.FAIL
         assert "Invalid JSON" in results[0].detail
 
+    @pytest.mark.asyncio
+    async def test_no_market_ids_returns_fail(self) -> None:
+        """check_market_status with empty market_ids must FAIL — not vacuously pass."""
+        c = PreflightChecker(
+            backend_url="http://localhost:8000/api/v1",
+            frontend_url="http://localhost:3000",
+            market_ids=[],
+        )
+        results = await c.check_market_status()
+        assert len(results) == 1
+        assert results[0].status == Status.FAIL
+        assert "No market IDs" in results[0].detail
+
     @respx.mock
     @pytest.mark.asyncio
     async def test_multiple_markets(self) -> None:
@@ -215,6 +229,34 @@ class TestOrderbook:
         respx.get("http://localhost:8000/api/v1/markets/MKT-TEST-001/orderbook").respond(500)
         results = await checker.check_orderbook()
         assert results[0].status == Status.FAIL
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_orderbook_nested_yes_no_format(self, checker: PreflightChecker) -> None:
+        """Backend's actual nested yes/no format is parsed correctly."""
+        respx.get("http://localhost:8000/api/v1/markets/MKT-TEST-001/orderbook").respond(
+            200,
+            json={
+                "data": {
+                    "yes": {"bids": [{"price": 45, "quantity": 10}], "asks": [{"price": 55, "quantity": 10}]},
+                    "no": {"bids": [{"price": 44, "quantity": 5}], "asks": [{"price": 56, "quantity": 5}]},
+                }
+            },
+        )
+        results = await checker.check_orderbook()
+        assert results[0].status == Status.PASS
+        assert "bids" in results[0].detail
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_orderbook_nested_empty_is_skip(self, checker: PreflightChecker) -> None:
+        """Nested format with all empty sides returns SKIP."""
+        respx.get("http://localhost:8000/api/v1/markets/MKT-TEST-001/orderbook").respond(
+            200,
+            json={"data": {"yes": {"bids": [], "asks": []}, "no": {"bids": [], "asks": []}}},
+        )
+        results = await checker.check_orderbook()
+        assert results[0].status == Status.SKIP
 
     @respx.mock
     @pytest.mark.asyncio

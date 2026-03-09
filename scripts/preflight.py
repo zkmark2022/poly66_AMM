@@ -15,10 +15,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import enum
+import os
 import sys
 import time
 import urllib.parse
-import uuid
 from dataclasses import dataclass, field
 
 import httpx
@@ -31,7 +31,7 @@ class Status(enum.Enum):
     SKIP = "SKIP"
 
     def __bool__(self) -> bool:
-        return self is Status.PASS
+        return self in (Status.PASS, Status.SKIP)
 
 
 @dataclass
@@ -61,8 +61,15 @@ class PreflightReport:
         return len(self.results)
 
     @property
+    def skip_count(self) -> int:
+        return sum(1 for r in self.results if r.status == Status.SKIP)
+
+    @property
     def summary_line(self) -> str:
         verdict = "PASS" if self.all_passed else "FAIL"
+        skip = self.skip_count
+        if skip:
+            return f"PREFLIGHT {verdict} ({self.pass_count}/{self.total_count}, {skip} SKIP)"
         return f"PREFLIGHT {verdict} ({self.pass_count}/{self.total_count})"
 
     def to_table(self) -> str:
@@ -124,7 +131,7 @@ class PreflightChecker:
                 status=Status.FAIL,
                 detail=f"HTTP {resp.status_code}",
             )
-        except httpx.HTTPError as exc:
+        except Exception as exc:
             return CheckResult(
                 name="backend_health",
                 status=Status.FAIL,
@@ -151,7 +158,7 @@ class PreflightChecker:
                 status=Status.FAIL,
                 detail=f"HTTP {resp.status_code} (expected 200 at /app)",
             )
-        except httpx.HTTPError as exc:
+        except Exception as exc:
             return CheckResult(
                 name="frontend_entry",
                 status=Status.FAIL,
@@ -187,7 +194,7 @@ class PreflightChecker:
                 status=Status.FAIL,
                 detail=f"Status is {status_str} (must be ACTIVE)",
             )
-        except httpx.HTTPError as exc:
+        except Exception as exc:
             return CheckResult(
                 name=f"market_status:{mid}",
                 status=Status.FAIL,
@@ -196,6 +203,12 @@ class PreflightChecker:
 
     async def check_market_status(self) -> list[CheckResult]:
         """GET /markets/{id} — each must be ACTIVE."""
+        if not self.market_ids:
+            return [CheckResult(
+                name="market_status",
+                status=Status.FAIL,
+                detail="No market IDs configured — preflight cannot proceed",
+            )]
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             return list(
                 await asyncio.gather(
@@ -224,8 +237,19 @@ class PreflightChecker:
                     detail="Invalid JSON in response",
                 )
             data = body.get("data", body) if isinstance(body, dict) else {}
-            bids = data.get("bids", []) if isinstance(data, dict) else []
-            asks = data.get("asks", []) if isinstance(data, dict) else []
+            if not isinstance(data, dict):
+                bids: list = []
+                asks: list = []
+            elif "yes" in data or "no" in data:
+                # Nested format: {"yes": {"bids": [...], "asks": [...]}, "no": {...}}
+                yes = data.get("yes") or {}
+                no = data.get("no") or {}
+                bids = (yes.get("bids") or []) + (no.get("bids") or [])
+                asks = (yes.get("asks") or []) + (no.get("asks") or [])
+            else:
+                # Flat fallback format: {"bids": [...], "asks": [...]}
+                bids = data.get("bids") or []
+                asks = data.get("asks") or []
             if bids or asks:
                 return CheckResult(
                     name=f"orderbook:{mid}",
@@ -237,7 +261,7 @@ class PreflightChecker:
                 status=Status.SKIP,
                 detail="Empty orderbook (no bids/asks) — AMM may not have posted yet",
             )
-        except httpx.HTTPError as exc:
+        except Exception as exc:
             return CheckResult(
                 name=f"orderbook:{mid}",
                 status=Status.FAIL,
@@ -270,7 +294,7 @@ class PreflightChecker:
         payload = {
             "market_id": market_id,
             "quantity": 1,
-            "idempotency_key": f"preflight_smoke_{uuid.uuid4().hex[:8]}",
+            "idempotency_key": f"preflight_smoke_{market_id}",
         }
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -289,7 +313,7 @@ class PreflightChecker:
                 status=Status.FAIL,
                 detail=f"HTTP {resp.status_code}",
             )
-        except httpx.HTTPError as exc:
+        except Exception as exc:
             return CheckResult(
                 name="mint_smoke",
                 status=Status.FAIL,
@@ -332,8 +356,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--auth-token",
-        default="",
-        help="Bearer token for authenticated endpoints (mint).",
+        default=os.environ.get("AMM_AUTH_TOKEN", ""),
+        help="Bearer token for authenticated endpoints (mint). Can also be set via AMM_AUTH_TOKEN env var.",
     )
     parser.add_argument(
         "--skip-mint-if-no-auth",
