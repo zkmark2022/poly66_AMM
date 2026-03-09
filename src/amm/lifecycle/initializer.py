@@ -107,11 +107,11 @@ class AMMInitializer:
         pos = positions_resp.get("data", {})
 
         return Inventory(
-            cash_cents=int(bal.get("balance_cents", 0)),
+            cash_cents=int(bal.get("available_balance_cents", bal.get("balance_cents", 0))),
             yes_volume=int(pos.get("yes_volume", 0)),
             no_volume=int(pos.get("no_volume", 0)),
-            yes_cost_sum_cents=int(pos.get("yes_cost_sum_cents", 0)),
-            no_cost_sum_cents=int(pos.get("no_cost_sum_cents", 0)),
+            yes_cost_sum_cents=int(pos.get("yes_cost_sum_cents", pos.get("yes_cost_sum", 0))),
+            no_cost_sum_cents=int(pos.get("no_cost_sum_cents", pos.get("no_cost_sum", 0))),
             yes_pending_sell=0,
             no_pending_sell=0,
             frozen_balance_cents=int(bal.get("frozen_balance_cents", 0)),

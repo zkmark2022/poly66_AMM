@@ -84,7 +84,11 @@ class AMMApiClient:
         raise RuntimeError(f"Max retries exceeded for {method} {path}")
 
     async def place_order(self, params: dict) -> dict:
-        return await self._request("POST", "/orders", json=params)
+        import uuid
+        payload = dict(params)
+        if "client_order_id" not in payload:
+            payload["client_order_id"] = str(uuid.uuid4())
+        return await self._request("POST", "/orders", json=payload)
 
     async def cancel_order(self, order_id: str) -> dict:
         return await self._request("POST", f"/orders/{_sanitize_id(order_id)}/cancel")
@@ -140,7 +144,11 @@ class AMMApiClient:
         return await self._request("GET", "/account/balance")
 
     async def get_positions(self, market_id: str) -> dict:
-        return await self._request("GET", f"/positions/{_sanitize_id(market_id)}")
+        resp = await self._request("GET", "/positions")
+        items = resp.get("data", {}).get("items", [])
+        mid = _sanitize_id(market_id)
+        match = next((it for it in items if it.get("market_id") == mid), {})
+        return {"data": match}
 
     async def get_trades(self, market_id: str, cursor: str = "", limit: int = 50) -> dict:
         params: dict = {"market_id": _sanitize_id(market_id), "limit": limit}
@@ -152,7 +160,19 @@ class AMMApiClient:
         return await self._request("GET", f"/markets/{_sanitize_id(market_id)}")
 
     async def get_orderbook(self, market_id: str) -> dict:
-        return await self._request("GET", f"/markets/{_sanitize_id(market_id)}/orderbook")
+        resp = await self._request("GET", f"/markets/{_sanitize_id(market_id)}/orderbook")
+        data = resp.get("data", {})
+        yes = data.get("yes", {})
+        bids = yes.get("bids", [])
+        asks = yes.get("asks", [])
+        if bids and "best_bid" not in data:
+            data["best_bid"] = bids[0]["price_cents"]
+            data["bid_depth"] = sum(b.get("total_quantity", 0) for b in bids)
+        if asks and "best_ask" not in data:
+            data["best_ask"] = asks[0]["price_cents"]
+            data["ask_depth"] = sum(a.get("total_quantity", 0) for a in asks)
+        resp["data"] = data
+        return resp
 
     async def get_market_status(self, market_id: str) -> str:
         resp = await self.get_market(market_id)
