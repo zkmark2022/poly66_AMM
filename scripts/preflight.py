@@ -17,6 +17,8 @@ import asyncio
 import enum
 import sys
 import time
+import urllib.parse
+import uuid
 from dataclasses import dataclass, field
 
 import httpx
@@ -87,7 +89,7 @@ class PreflightChecker:
         backend_url: str,
         frontend_url: str,
         market_ids: list[str],
-        auth_token: str | None = "",
+        auth_token: str = "",
         skip_mint_if_no_auth: bool = False,
     ) -> None:
         self.backend_url = backend_url.rstrip("/")
@@ -98,8 +100,9 @@ class PreflightChecker:
 
     def _health_url(self) -> str:
         # /health lives at the app root, not under /api/v1
-        # e.g. http://localhost:8000/api/v1 -> http://localhost:8000/api/v1/../health
-        return f"{self.backend_url}/../health"
+        # e.g. http://localhost:8000/api/v1 -> http://localhost:8000/health
+        parsed = urllib.parse.urlparse(self.backend_url)
+        return f"{parsed.scheme}://{parsed.netloc}/health"
 
     async def check_backend_health(self) -> CheckResult:
         """GET /health — must return 200 quickly."""
@@ -155,82 +158,100 @@ class PreflightChecker:
                 detail=str(exc),
             )
 
+    async def _check_one_market_status(
+        self, client: httpx.AsyncClient, mid: str
+    ) -> CheckResult:
+        url = f"{self.backend_url}/markets/{mid}"
+        try:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return CheckResult(
+                    name=f"market_status:{mid}",
+                    status=Status.FAIL,
+                    detail=f"HTTP {resp.status_code}",
+                )
+            try:
+                body = resp.json()
+            except ValueError:
+                return CheckResult(
+                    name=f"market_status:{mid}",
+                    status=Status.FAIL,
+                    detail="Invalid JSON in response",
+                )
+            data = body.get("data", body) if isinstance(body, dict) else {}
+            status_str = str(data.get("status", "unknown")).upper() if isinstance(data, dict) else "UNKNOWN"
+            if status_str == "ACTIVE":
+                return CheckResult(name=f"market_status:{mid}", status=Status.PASS, detail="ACTIVE")
+            return CheckResult(
+                name=f"market_status:{mid}",
+                status=Status.FAIL,
+                detail=f"Status is {status_str} (must be ACTIVE)",
+            )
+        except httpx.HTTPError as exc:
+            return CheckResult(
+                name=f"market_status:{mid}",
+                status=Status.FAIL,
+                detail=str(exc),
+            )
+
     async def check_market_status(self) -> list[CheckResult]:
         """GET /markets/{id} — each must be ACTIVE."""
-        results: list[CheckResult] = []
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            for mid in self.market_ids:
-                url = f"{self.backend_url}/markets/{mid}"
-                try:
-                    resp = await client.get(url)
-                    if resp.status_code != 200:
-                        results.append(CheckResult(
-                            name=f"market_status:{mid}",
-                            status=Status.FAIL,
-                            detail=f"HTTP {resp.status_code}",
-                        ))
-                        continue
-                    body = resp.json()
-                    data = body.get("data", body) if isinstance(body, dict) else {}
-                    status_str = str(data.get("status", "unknown")).upper() if isinstance(data, dict) else "UNKNOWN"
-                    if status_str == "ACTIVE":
-                        results.append(CheckResult(
-                            name=f"market_status:{mid}",
-                            status=Status.PASS,
-                            detail="ACTIVE",
-                        ))
-                    else:
-                        results.append(CheckResult(
-                            name=f"market_status:{mid}",
-                            status=Status.FAIL,
-                            detail=f"Status is {status_str} (must be ACTIVE)",
-                        ))
-                except httpx.HTTPError as exc:
-                    results.append(CheckResult(
-                        name=f"market_status:{mid}",
-                        status=Status.FAIL,
-                        detail=str(exc),
-                    ))
-        return results
+            return list(
+                await asyncio.gather(
+                    *[self._check_one_market_status(client, mid) for mid in self.market_ids]
+                )
+            )
+
+    async def _check_one_orderbook(
+        self, client: httpx.AsyncClient, mid: str
+    ) -> CheckResult:
+        url = f"{self.backend_url}/markets/{mid}/orderbook"
+        try:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return CheckResult(
+                    name=f"orderbook:{mid}",
+                    status=Status.FAIL,
+                    detail=f"HTTP {resp.status_code}",
+                )
+            try:
+                body = resp.json()
+            except ValueError:
+                return CheckResult(
+                    name=f"orderbook:{mid}",
+                    status=Status.FAIL,
+                    detail="Invalid JSON in response",
+                )
+            data = body.get("data", body) if isinstance(body, dict) else {}
+            bids = data.get("bids", []) if isinstance(data, dict) else []
+            asks = data.get("asks", []) if isinstance(data, dict) else []
+            if bids or asks:
+                return CheckResult(
+                    name=f"orderbook:{mid}",
+                    status=Status.PASS,
+                    detail=f"{len(bids)} bids, {len(asks)} asks",
+                )
+            return CheckResult(
+                name=f"orderbook:{mid}",
+                status=Status.SKIP,
+                detail="Empty orderbook (no bids/asks) — AMM may not have posted yet",
+            )
+        except httpx.HTTPError as exc:
+            return CheckResult(
+                name=f"orderbook:{mid}",
+                status=Status.FAIL,
+                detail=str(exc),
+            )
 
     async def check_orderbook(self) -> list[CheckResult]:
         """GET /markets/{id}/orderbook — must return bids/asks."""
-        results: list[CheckResult] = []
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            for mid in self.market_ids:
-                url = f"{self.backend_url}/markets/{mid}/orderbook"
-                try:
-                    resp = await client.get(url)
-                    if resp.status_code != 200:
-                        results.append(CheckResult(
-                            name=f"orderbook:{mid}",
-                            status=Status.FAIL,
-                            detail=f"HTTP {resp.status_code}",
-                        ))
-                        continue
-                    body = resp.json()
-                    data = body.get("data", body) if isinstance(body, dict) else {}
-                    bids = data.get("bids", []) if isinstance(data, dict) else []
-                    asks = data.get("asks", []) if isinstance(data, dict) else []
-                    if bids or asks:
-                        results.append(CheckResult(
-                            name=f"orderbook:{mid}",
-                            status=Status.PASS,
-                            detail=f"{len(bids)} bids, {len(asks)} asks",
-                        ))
-                    else:
-                        results.append(CheckResult(
-                            name=f"orderbook:{mid}",
-                            status=Status.SKIP,
-                            detail="Empty orderbook (no bids/asks) — AMM may not have posted yet",
-                        ))
-                except httpx.HTTPError as exc:
-                    results.append(CheckResult(
-                        name=f"orderbook:{mid}",
-                        status=Status.FAIL,
-                        detail=str(exc),
-                    ))
-        return results
+            return list(
+                await asyncio.gather(
+                    *[self._check_one_orderbook(client, mid) for mid in self.market_ids]
+                )
+            )
 
     async def check_mint_smoke(self) -> CheckResult:
         """POST /amm/mint — smoke test with small quantity."""
@@ -249,7 +270,7 @@ class PreflightChecker:
         payload = {
             "market_id": market_id,
             "quantity": 1,
-            "idempotency_key": "preflight_smoke_test",
+            "idempotency_key": f"preflight_smoke_{uuid.uuid4().hex[:8]}",
         }
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:

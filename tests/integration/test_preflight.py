@@ -62,7 +62,7 @@ class TestBackendHealth:
     @respx.mock
     @pytest.mark.asyncio
     async def test_health_pass(self, checker: PreflightChecker) -> None:
-        respx.get("http://localhost:8000/api/v1/../health").respond(
+        respx.get("http://localhost:8000/health").respond(
             200, json={"status": "ok"}
         )
         result = await checker.check_backend_health()
@@ -73,7 +73,7 @@ class TestBackendHealth:
     @respx.mock
     @pytest.mark.asyncio
     async def test_health_timeout(self, checker: PreflightChecker) -> None:
-        respx.get("http://localhost:8000/api/v1/../health").mock(
+        respx.get("http://localhost:8000/health").mock(
             side_effect=httpx.ConnectTimeout("timeout")
         )
         result = await checker.check_backend_health()
@@ -83,7 +83,7 @@ class TestBackendHealth:
     @respx.mock
     @pytest.mark.asyncio
     async def test_health_500(self, checker: PreflightChecker) -> None:
-        respx.get("http://localhost:8000/api/v1/../health").respond(500)
+        respx.get("http://localhost:8000/health").respond(500)
         result = await checker.check_backend_health()
         assert result.status == Status.FAIL
 
@@ -91,7 +91,7 @@ class TestBackendHealth:
     @pytest.mark.asyncio
     async def test_health_slow_warns(self, checker: PreflightChecker) -> None:
         """Health responding but > 2s should still PASS but note latency."""
-        respx.get("http://localhost:8000/api/v1/../health").respond(
+        respx.get("http://localhost:8000/health").respond(
             200, json={"status": "ok"}
         )
         result = await checker.check_backend_health()
@@ -160,6 +160,16 @@ class TestMarketStatus:
 
     @respx.mock
     @pytest.mark.asyncio
+    async def test_market_invalid_json(self, checker: PreflightChecker) -> None:
+        respx.get("http://localhost:8000/api/v1/markets/MKT-TEST-001").respond(
+            200, content=b"<html>proxy error</html>", headers={"content-type": "text/html"}
+        )
+        results = await checker.check_market_status()
+        assert results[0].status == Status.FAIL
+        assert "Invalid JSON" in results[0].detail
+
+    @respx.mock
+    @pytest.mark.asyncio
     async def test_multiple_markets(self) -> None:
         c = PreflightChecker(
             backend_url="http://localhost:8000/api/v1",
@@ -206,6 +216,16 @@ class TestOrderbook:
         results = await checker.check_orderbook()
         assert results[0].status == Status.FAIL
 
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_orderbook_invalid_json(self, checker: PreflightChecker) -> None:
+        respx.get("http://localhost:8000/api/v1/markets/MKT-TEST-001/orderbook").respond(
+            200, content=b"<html>proxy error</html>", headers={"content-type": "text/html"}
+        )
+        results = await checker.check_orderbook()
+        assert results[0].status == Status.FAIL
+        assert "Invalid JSON" in results[0].detail
+
 
 # --- Mint smoke test ---
 
@@ -244,7 +264,7 @@ class TestMintSmoke:
             backend_url="http://localhost:8000/api/v1",
             frontend_url="http://localhost:3000",
             market_ids=["MKT-TEST-001"],
-            auth_token=None,
+            auth_token="",
             skip_mint_if_no_auth=True,
         )
         result = await c.check_mint_smoke()
@@ -299,7 +319,7 @@ class TestRunAll:
     @respx.mock
     @pytest.mark.asyncio
     async def test_run_all_collects_results(self, checker: PreflightChecker) -> None:
-        respx.get("http://localhost:8000/api/v1/../health").respond(
+        respx.get("http://localhost:8000/health").respond(
             200, json={"status": "ok"}
         )
         respx.get("http://localhost:3000/app").respond(200, html="<html></html>")
