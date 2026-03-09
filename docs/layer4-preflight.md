@@ -45,11 +45,11 @@ uv run python -m scripts.preflight \
 ```
 Check                          Status   Latency    Detail
 --------------------------------------------------------------------------------
-backend_health                 PASS     12.3ms     200 OK (12ms)
-frontend_entry                 PASS     8.1ms      200 OK (8ms)
+backend_health                 PASS     12.3ms     200 OK
+frontend_entry                 PASS     8.1ms      200 OK
 market_status:MKT-BTC-100K-2026 PASS              ACTIVE
 orderbook:MKT-BTC-100K-2026   PASS                3 bids, 3 asks
-mint_smoke                     PASS     45.2ms     200 OK (45ms)
+mint_smoke                     PASS     45.2ms     200 OK
 --------------------------------------------------------------------------------
 PREFLIGHT PASS (5/5)
 ```

@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import enum
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -29,9 +30,6 @@ class Status(enum.Enum):
     PASS = "PASS"
     FAIL = "FAIL"
     SKIP = "SKIP"
-
-    def __bool__(self) -> bool:
-        return self in (Status.PASS, Status.SKIP)
 
 
 @dataclass
@@ -86,6 +84,15 @@ class PreflightReport:
 
 
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+_MARKET_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _validate_market_ids(market_ids: list[str]) -> None:
+    for mid in market_ids:
+        if not _MARKET_ID_RE.match(mid):
+            raise ValueError(
+                f"Invalid market ID {mid!r}: only alphanumeric, hyphens, and underscores are allowed"
+            )
 
 
 class PreflightChecker:
@@ -96,9 +103,10 @@ class PreflightChecker:
         backend_url: str,
         frontend_url: str,
         market_ids: list[str],
-        auth_token: str = "",
+        auth_token: str | None = None,
         skip_mint_if_no_auth: bool = False,
     ) -> None:
+        _validate_market_ids(market_ids)
         self.backend_url = backend_url.rstrip("/")
         self.frontend_url = frontend_url.rstrip("/")
         self.market_ids = market_ids
@@ -123,7 +131,7 @@ class PreflightChecker:
                 return CheckResult(
                     name="backend_health",
                     status=Status.PASS,
-                    detail=f"200 OK ({latency:.0f}ms)",
+                    detail="200 OK",
                     latency_ms=latency,
                 )
             return CheckResult(
@@ -150,7 +158,7 @@ class PreflightChecker:
                 return CheckResult(
                     name="frontend_entry",
                     status=Status.PASS,
-                    detail=f"200 OK ({latency:.0f}ms)",
+                    detail="200 OK",
                     latency_ms=latency,
                 )
             return CheckResult(
@@ -186,7 +194,7 @@ class PreflightChecker:
                     detail="Invalid JSON in response",
                 )
             data = body.get("data", body) if isinstance(body, dict) else {}
-            status_str = str(data.get("status", "unknown")).upper() if isinstance(data, dict) else "UNKNOWN"
+            status_str = str(data.get("status", "unknown")).upper()
             if status_str == "ACTIVE":
                 return CheckResult(name=f"market_status:{mid}", status=Status.PASS, detail="ACTIVE")
             return CheckResult(
@@ -237,10 +245,7 @@ class PreflightChecker:
                     detail="Invalid JSON in response",
                 )
             data = body.get("data", body) if isinstance(body, dict) else {}
-            if not isinstance(data, dict):
-                bids: list = []
-                asks: list = []
-            elif "yes" in data or "no" in data:
+            if "yes" in data or "no" in data:
                 # Nested format: {"yes": {"bids": [...], "asks": [...]}, "no": {...}}
                 yes = data.get("yes") or {}
                 no = data.get("no") or {}
@@ -305,7 +310,7 @@ class PreflightChecker:
                 return CheckResult(
                     name="mint_smoke",
                     status=Status.PASS,
-                    detail=f"200 OK ({latency:.0f}ms)",
+                    detail="200 OK",
                     latency_ms=latency,
                 )
             return CheckResult(
@@ -356,7 +361,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--auth-token",
-        default=os.environ.get("AMM_AUTH_TOKEN", ""),
+        default=os.environ.get("AMM_AUTH_TOKEN") or None,
         help="Bearer token for authenticated endpoints (mint). Can also be set via AMM_AUTH_TOKEN env var.",
     )
     parser.add_argument(

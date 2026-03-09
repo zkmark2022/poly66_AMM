@@ -28,20 +28,6 @@ def checker() -> PreflightChecker:
     )
 
 
-# --- Status enum ---
-
-class TestStatus:
-    def test_pass_is_truthy(self) -> None:
-        assert Status.PASS
-
-    def test_fail_is_falsy(self) -> None:
-        assert not Status.FAIL
-
-    def test_skip_is_truthy(self) -> None:
-        # SKIP is acceptable (preflight can proceed), so it's truthy — consistent with all_passed
-        assert Status.SKIP
-
-
 # --- CheckResult model ---
 
 class TestCheckResult:
@@ -306,7 +292,7 @@ class TestMintSmoke:
             backend_url="http://localhost:8000/api/v1",
             frontend_url="http://localhost:3000",
             market_ids=["MKT-TEST-001"],
-            auth_token="",
+            auth_token=None,
             skip_mint_if_no_auth=True,
         )
         result = await c.check_mint_smoke()
@@ -376,4 +362,4 @@ class TestRunAll:
         )
         report = await checker.run_all()
         assert report.all_passed
-        assert len(report.results) >= 5  # health + frontend + market + orderbook + mint
+        assert len(report.results) == 5  # health + frontend + market + orderbook + mint
