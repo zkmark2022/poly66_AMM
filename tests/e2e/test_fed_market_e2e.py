@@ -25,7 +25,7 @@ from typing import Any
 BASE_URL = os.environ.get("E2E_BACKEND_URL", "http://localhost:8000/api/v1")
 MARKET_ID = "MKT-FED-RATE-CUT-2026Q2"
 EVIDENCE_DIR = Path(__file__).resolve().parent.parent.parent / "reports" / "e2e" / "evidence" / "fed-round2"
-AMM_PASSWORD = os.environ["AMM_PASSWORD"]
+AMM_PASSWORD = os.environ.get("AMM_PASSWORD", "")
 
 
 @dataclass
