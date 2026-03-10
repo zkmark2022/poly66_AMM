@@ -1,0 +1,38 @@
+[
+  {
+    "label": "price=0",
+    "rejected": true,
+    "resp_code": 422,
+    "detail": "{\"code\":4001,\"message\":\"Price out of range: 0\",\"data\":null,\"timestamp\":\"2026-03-10T06:09:05.926266+00:00\",\"request_id\":\"req_0bf39378638f\"}"
+  },
+  {
+    "label": "price=100",
+    "rejected": true,
+    "resp_code": 422,
+    "detail": "{\"code\":4001,\"message\":\"Price out of range: 100\",\"data\":null,\"timestamp\":\"2026-03-10T06:09:05.931094+00:00\",\"request_id\":\"req_d28078410392\"}"
+  },
+  {
+    "label": "price=101",
+    "rejected": true,
+    "resp_code": 422,
+    "detail": "{\"code\":4001,\"message\":\"Price out of range: 101\",\"data\":null,\"timestamp\":\"2026-03-10T06:09:05.935068+00:00\",\"request_id\":\"req_a1ccb92e64bc\"}"
+  },
+  {
+    "label": "price=-1",
+    "rejected": true,
+    "resp_code": 422,
+    "detail": "{\"code\":4001,\"message\":\"Price out of range: -1\",\"data\":null,\"timestamp\":\"2026-03-10T06:09:05.938639+00:00\",\"request_id\":\"req_4ba30c9aa43b\"}"
+  },
+  {
+    "label": "qty=0",
+    "rejected": true,
+    "resp_code": 422,
+    "detail": "{\"code\":4002,\"message\":\"Order limit exceeded: quantity=0 must be in [1, 10000]\",\"data\":null,\"timestamp\":\"2026-03-10T06:09:05.941773+00:00\",\"request_id\":\"req_5f3bf6ecffcb\"}"
+  },
+  {
+    "label": "qty=-1",
+    "rejected": true,
+    "resp_code": 422,
+    "detail": "{\"code\":4002,\"message\":\"Order limit exceeded: quantity=-1 must be in [1, 10000]\",\"data\":null,\"timestamp\":\"2026-03-10T06:09:05.944625+00:00\",\"request_id\":\"req_b1e332b16409\"}"
+  }
+]

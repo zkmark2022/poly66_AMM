@@ -1,0 +1,320 @@
+{
+  "timestamp": "2026-03-10T06:08:58.383676+00:00",
+  "market_id": "MKT-FED-RATE-CUT-2026Q2",
+  "backend": "http://localhost:8000/api/v1",
+  "summary": "8/8 PASS",
+  "results": [
+    {
+      "scenario_id": "A01",
+      "name": "Orderbook visible and numerically correct",
+      "passed": true,
+      "details": "YES bids=3 asks=3, NO bids=3 asks=3, total=12, prices_valid=True, qtys_valid=True, bids_sorted=True, asks_sorted=True",
+      "evidence": {
+        "yes_bids": [
+          {
+            "price_cents": 45,
+            "total_quantity": 11
+          },
+          {
+            "price_cents": 40,
+            "total_quantity": 5
+          },
+          {
+            "price_cents": 35,
+            "total_quantity": 5
+          }
+        ],
+        "yes_asks": [
+          {
+            "price_cents": 55,
+            "total_quantity": 12
+          },
+          {
+            "price_cents": 60,
+            "total_quantity": 5
+          },
+          {
+            "price_cents": 65,
+            "total_quantity": 5
+          }
+        ],
+        "no_bids": [
+          {
+            "price_cents": 45,
+            "total_quantity": 12
+          },
+          {
+            "price_cents": 40,
+            "total_quantity": 5
+          },
+          {
+            "price_cents": 35,
+            "total_quantity": 5
+          }
+        ],
+        "no_asks": [
+          {
+            "price_cents": 55,
+            "total_quantity": 11
+          },
+          {
+            "price_cents": 60,
+            "total_quantity": 5
+          },
+          {
+            "price_cents": 65,
+            "total_quantity": 5
+          }
+        ],
+        "prices_valid": true,
+        "qtys_valid": true,
+        "has_both_sides": true
+      },
+      "bug_notes": ""
+    },
+    {
+      "scenario_id": "B01",
+      "name": "BUY YES",
+      "passed": true,
+      "details": "BUY YES @55c x1, filled=1, trades=1 | Cash: 9300\u21929244 (\u0394=-56) | YES vol: 3\u21924",
+      "evidence": {
+        "filled": 1,
+        "trades": [
+          {
+            "buy_order_id": "306699841986101248",
+            "sell_order_id": "306699761950392320",
+            "price": 55,
+            "quantity": 1,
+            "scenario": "MINT"
+          }
+        ],
+        "cash_delta": -56,
+        "yes_delta": 1,
+        "no_delta": 0,
+        "netting": {},
+        "order": {
+          "id": "306699841986101248",
+          "client_order_id": "e2e-r2-yes-buy-27f4940d",
+          "market_id": "MKT-FED-RATE-CUT-2026Q2",
+          "original_side": "YES",
+          "original_direction": "BUY",
+          "original_price_cents": 55,
+          "book_type": "NATIVE_BUY",
+          "price_type": "LIMIT",
+          "time_in_force": "IOC",
+          "quantity": 1,
+          "filled_quantity": 1,
+          "remaining_quantity": 0,
+          "frozen_amount": 0,
+          "frozen_asset_type": "FUNDS",
+          "status": "FILLED",
+          "cancel_reason": null,
+          "created_at": "2026-03-10T06:09:00.537450Z",
+          "updated_at": "2026-03-10T06:09:00.537452Z"
+        }
+      },
+      "bug_notes": ""
+    },
+    {
+      "scenario_id": "B02",
+      "name": "BUY NO",
+      "passed": true,
+      "details": "BUY NO @55c x1, filled=1, trades=1 | Cash: 9244\u21929188 (\u0394=-56) | NO vol: 0\u21921",
+      "evidence": {
+        "filled": 1,
+        "trades": [
+          {
+            "buy_order_id": "306699761862311936",
+            "sell_order_id": "306699846960545792",
+            "price": 45,
+            "quantity": 1,
+            "scenario": "MINT"
+          }
+        ],
+        "cash_delta": -56,
+        "no_delta": 1,
+        "order": {
+          "id": "306699846960545792",
+          "client_order_id": "e2e-r2-no-buy-b69ea7bf",
+          "market_id": "MKT-FED-RATE-CUT-2026Q2",
+          "original_side": "NO",
+          "original_direction": "BUY",
+          "original_price_cents": 55,
+          "book_type": "SYNTHETIC_SELL",
+          "price_type": "LIMIT",
+          "time_in_force": "IOC",
+          "quantity": 1,
+          "filled_quantity": 1,
+          "remaining_quantity": 0,
+          "frozen_amount": 0,
+          "frozen_asset_type": "FUNDS",
+          "status": "FILLED",
+          "cancel_reason": null,
+          "created_at": "2026-03-10T06:09:01.723741Z",
+          "updated_at": "2026-03-10T06:09:01.723741Z"
+        }
+      },
+      "bug_notes": ""
+    },
+    {
+      "scenario_id": "B03",
+      "name": "SELL YES",
+      "passed": true,
+      "details": "SELL YES @45c x1, filled=1, trades=1 | Cash: 9188\u21929232 (\u0394=44) | YES vol: 4\u21923",
+      "evidence": {
+        "filled": 1,
+        "trades": [
+          {
+            "buy_order_id": "306699761862311936",
+            "sell_order_id": "306699851855298560",
+            "price": 45,
+            "quantity": 1,
+            "scenario": "TRANSFER_YES"
+          }
+        ],
+        "cash_delta": 44,
+        "yes_delta": -1,
+        "order": {
+          "id": "306699851855298560",
+          "client_order_id": "e2e-r2-yes-sell-1eb3298c",
+          "market_id": "MKT-FED-RATE-CUT-2026Q2",
+          "original_side": "YES",
+          "original_direction": "SELL",
+          "original_price_cents": 45,
+          "book_type": "NATIVE_SELL",
+          "price_type": "LIMIT",
+          "time_in_force": "IOC",
+          "quantity": 1,
+          "filled_quantity": 1,
+          "remaining_quantity": 0,
+          "frozen_amount": 0,
+          "frozen_asset_type": "YES_SHARES",
+          "status": "FILLED",
+          "cancel_reason": null,
+          "created_at": "2026-03-10T06:09:02.890589Z",
+          "updated_at": "2026-03-10T06:09:02.890590Z"
+        }
+      },
+      "bug_notes": ""
+    },
+    {
+      "scenario_id": "B04",
+      "name": "SELL NO",
+      "passed": true,
+      "details": "SELL NO @45c x1, filled=1, trades=1 | Cash: 9232\u21929276 (\u0394=44) | NO vol: 1\u21920",
+      "evidence": {
+        "filled": 1,
+        "trades": [
+          {
+            "buy_order_id": "306699856800382976",
+            "sell_order_id": "306699761950392320",
+            "price": 55,
+            "quantity": 1,
+            "scenario": "TRANSFER_NO"
+          }
+        ],
+        "cash_delta": 44,
+        "no_delta": -1,
+        "order": {
+          "id": "306699856800382976",
+          "client_order_id": "e2e-r2-no-sell-ef145cdd",
+          "market_id": "MKT-FED-RATE-CUT-2026Q2",
+          "original_side": "NO",
+          "original_direction": "SELL",
+          "original_price_cents": 45,
+          "book_type": "SYNTHETIC_BUY",
+          "price_type": "LIMIT",
+          "time_in_force": "IOC",
+          "quantity": 1,
+          "filled_quantity": 1,
+          "remaining_quantity": 0,
+          "frozen_amount": 0,
+          "frozen_asset_type": "NO_SHARES",
+          "status": "FILLED",
+          "cancel_reason": null,
+          "created_at": "2026-03-10T06:09:04.069977Z",
+          "updated_at": "2026-03-10T06:09:04.069978Z"
+        }
+      },
+      "bug_notes": ""
+    },
+    {
+      "scenario_id": "D02",
+      "name": "Cancel order",
+      "passed": true,
+      "details": "Placed GTC BUY YES @5c x1 (id=306699861737078784) | Cancel: still_open=False, frozen_released=True",
+      "evidence": {
+        "order_id": "306699861737078784",
+        "cancel_resp": {
+          "order_id": "306699861737078784",
+          "status": "CANCELLED",
+          "unfrozen_amount": 6,
+          "unfrozen_asset_type": "FUNDS",
+          "remaining_quantity_cancelled": 1
+        },
+        "still_open": false,
+        "frozen_released": true
+      },
+      "bug_notes": ""
+    },
+    {
+      "scenario_id": "D03",
+      "name": "Invalid input validation",
+      "passed": true,
+      "details": "price=0=REJECTED | price=100=REJECTED | price=101=REJECTED | price=-1=REJECTED | qty=0=REJECTED | qty=-1=REJECTED",
+      "evidence": {
+        "test_results": [
+          {
+            "label": "price=0",
+            "rejected": true,
+            "resp_code": 422,
+            "detail": "{\"code\":4001,\"message\":\"Price out of range: 0\",\"data\":null,\"timestamp\":\"2026-03-10T06:09:05.926266+00:00\",\"request_id\":\"req_0bf39378638f\"}"
+          },
+          {
+            "label": "price=100",
+            "rejected": true,
+            "resp_code": 422,
+            "detail": "{\"code\":4001,\"message\":\"Price out of range: 100\",\"data\":null,\"timestamp\":\"2026-03-10T06:09:05.931094+00:00\",\"request_id\":\"req_d28078410392\"}"
+          },
+          {
+            "label": "price=101",
+            "rejected": true,
+            "resp_code": 422,
+            "detail": "{\"code\":4001,\"message\":\"Price out of range: 101\",\"data\":null,\"timestamp\":\"2026-03-10T06:09:05.935068+00:00\",\"request_id\":\"req_a1ccb92e64bc\"}"
+          },
+          {
+            "label": "price=-1",
+            "rejected": true,
+            "resp_code": 422,
+            "detail": "{\"code\":4001,\"message\":\"Price out of range: -1\",\"data\":null,\"timestamp\":\"2026-03-10T06:09:05.938639+00:00\",\"request_id\":\"req_4ba30c9aa43b\"}"
+          },
+          {
+            "label": "qty=0",
+            "rejected": true,
+            "resp_code": 422,
+            "detail": "{\"code\":4002,\"message\":\"Order limit exceeded: quantity=0 must be in [1, 10000]\",\"data\":null,\"timestamp\":\"2026-03-10T06:09:05.941773+00:00\",\"request_id\":\"req_5f3bf6ecffcb\"}"
+          },
+          {
+            "label": "qty=-1",
+            "rejected": true,
+            "resp_code": 422,
+            "detail": "{\"code\":4002,\"message\":\"Order limit exceeded: quantity=-1 must be in [1, 10000]\",\"data\":null,\"timestamp\":\"2026-03-10T06:09:05.944625+00:00\",\"request_id\":\"req_b1e332b16409\"}"
+          }
+        ]
+      },
+      "bug_notes": ""
+    },
+    {
+      "scenario_id": "F01",
+      "name": "Dual-lane consistency",
+      "passed": true,
+      "details": "FED levels=12, BTC levels=20, BTC unchanged after FED order=True",
+      "evidence": {
+        "fed_total": 12,
+        "btc_total": 20,
+        "btc_unchanged": true
+      },
+      "bug_notes": ""
+    }
+  ]
+}

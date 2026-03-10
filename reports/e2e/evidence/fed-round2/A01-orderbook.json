@@ -1,0 +1,65 @@
+{
+  "market_id": "MKT-FED-RATE-CUT-2026Q2",
+  "yes": {
+    "bids": [
+      {
+        "price_cents": 45,
+        "total_quantity": 11
+      },
+      {
+        "price_cents": 40,
+        "total_quantity": 5
+      },
+      {
+        "price_cents": 35,
+        "total_quantity": 5
+      }
+    ],
+    "asks": [
+      {
+        "price_cents": 55,
+        "total_quantity": 12
+      },
+      {
+        "price_cents": 60,
+        "total_quantity": 5
+      },
+      {
+        "price_cents": 65,
+        "total_quantity": 5
+      }
+    ]
+  },
+  "no": {
+    "bids": [
+      {
+        "price_cents": 45,
+        "total_quantity": 12
+      },
+      {
+        "price_cents": 40,
+        "total_quantity": 5
+      },
+      {
+        "price_cents": 35,
+        "total_quantity": 5
+      }
+    ],
+    "asks": [
+      {
+        "price_cents": 55,
+        "total_quantity": 11
+      },
+      {
+        "price_cents": 60,
+        "total_quantity": 5
+      },
+      {
+        "price_cents": 65,
+        "total_quantity": 5
+      }
+    ]
+  },
+  "last_trade_price_cents": 55,
+  "updated_at": "2026-03-10T06:09:00.520061+00:00"
+}

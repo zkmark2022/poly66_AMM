@@ -1,0 +1,95 @@
+{
+  "market_id": "MKT-BTC-100K-2026",
+  "yes": {
+    "bids": [
+      {
+        "price_cents": 95,
+        "total_quantity": 200
+      },
+      {
+        "price_cents": 60,
+        "total_quantity": 1520
+      },
+      {
+        "price_cents": 55,
+        "total_quantity": 10
+      },
+      {
+        "price_cents": 51,
+        "total_quantity": 3
+      },
+      {
+        "price_cents": 50,
+        "total_quantity": 2434
+      },
+      {
+        "price_cents": 45,
+        "total_quantity": 34
+      },
+      {
+        "price_cents": 42,
+        "total_quantity": 33
+      },
+      {
+        "price_cents": 40,
+        "total_quantity": 82
+      },
+      {
+        "price_cents": 30,
+        "total_quantity": 11
+      },
+      {
+        "price_cents": 20,
+        "total_quantity": 11
+      }
+    ],
+    "asks": []
+  },
+  "no": {
+    "bids": [],
+    "asks": [
+      {
+        "price_cents": 5,
+        "total_quantity": 200
+      },
+      {
+        "price_cents": 40,
+        "total_quantity": 1520
+      },
+      {
+        "price_cents": 45,
+        "total_quantity": 10
+      },
+      {
+        "price_cents": 49,
+        "total_quantity": 3
+      },
+      {
+        "price_cents": 50,
+        "total_quantity": 2434
+      },
+      {
+        "price_cents": 55,
+        "total_quantity": 34
+      },
+      {
+        "price_cents": 58,
+        "total_quantity": 33
+      },
+      {
+        "price_cents": 60,
+        "total_quantity": 82
+      },
+      {
+        "price_cents": 70,
+        "total_quantity": 11
+      },
+      {
+        "price_cents": 80,
+        "total_quantity": 11
+      }
+    ]
+  },
+  "last_trade_price_cents": 60,
+  "updated_at": "2026-03-10T06:09:05.949928+00:00"
+}

@@ -1,0 +1,17 @@
+{
+  "balance": {
+    "user_id": "30497991-c0cf-4917-9aae-acf0ec2363d8",
+    "available_balance_cents": 9276,
+    "available_balance_display": "$92.76",
+    "frozen_balance_cents": 321,
+    "frozen_balance_display": "$3.21",
+    "total_balance_cents": 9597,
+    "total_balance_display": "$95.97"
+  },
+  "position": {
+    "yes_volume": 3,
+    "no_volume": 0,
+    "yes_cost_sum": 165,
+    "no_cost_sum": 0
+  }
+}
