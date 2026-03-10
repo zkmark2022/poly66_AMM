@@ -16,7 +16,6 @@ from src.amm.models.enums import DefenseLevel, Phase
 from src.amm.lifecycle.reinvest import maybe_auto_reinvest
 
 from tests.simulation.conftest import (
-    CapturingOrderManager,
     compute_effective_spread,
     make_config,
     make_context,
@@ -468,10 +467,7 @@ class TestE01RestartRecovery:
             inventory=make_inventory(yes_volume=260, no_volume=140),
             config=config,
         )
-        risk_stack = None  # Will use same DefenseStack across cycles
-
         services, _ = make_real_services(ctx)
-        risk_stack = services["risk"]
         await quote_cycle(ctx, **services)
         assert ctx.defense_level == DefenseLevel.WIDEN
 
