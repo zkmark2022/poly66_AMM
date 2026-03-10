@@ -12,7 +12,7 @@
 |----------|--------|-------------|
 | A01 | PASS | Orderbook: 12 levels (3 per side), prices valid 1-99, sorted correctly |
 | B01 | PASS | BUY YES @55c x1 filled, cash -56c, YES vol +1 |
-| B02 | PASS | BUY NO @55c x1 filled, cash -56c, NO vol +1 |
+| B02 | PASS | BUY NO @55c x1 filled, cash -55c, NO vol +1 |
 | B03 | PASS | SELL YES @45c x1 filled, cash +44c, YES vol -1 |
 | B04 | PASS | SELL NO @45c x1 filled, cash +44c, NO vol -1 |
 | D02 | PASS | GTC order placed, verified OPEN, cancelled, frozen funds released |
@@ -24,8 +24,13 @@
 ### Netting Behavior (New Discovery)
 When demo user holds NO shares and buys YES, the matching engine correctly executes position netting:
 - MINT creates YES+NO pair → immediately redeems opposing positions → net cash refund of 100c per pair
-- Example: BUY YES @55c with existing NO position → cash INCREASES by 44c (100c refund - 55c cost - 1c fee)
+- Theoretical example: BUY YES @55c with existing NO position → cash INCREASES by 44c (100c refund - 55c cost - 1c fee)
 - This is correct behavior, not a bug. The E2E script was updated to recognize netting as valid.
+
+> **Note**: B01 in this run did NOT trigger netting (`netting_result: null` in evidence) because the demo
+> user held 0 NO shares before B01 (confirmed by B01-before.json: `no_volume: 0`). Netting was observed
+> during script development when the account had pre-existing NO positions. The B01 scenario here tests
+> the standard MINT path (no opposing position).
 
 ### AMM Bot Not Running for FED Market
 The AMM bot is configured as single-market (BTC only). For FED market E2E, liquidity was seeded
