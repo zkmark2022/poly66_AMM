@@ -93,8 +93,10 @@ class TestC01Widen:
         assert normal_ctx.defense_level == DefenseLevel.NORMAL
         assert widen_ctx.defense_level == DefenseLevel.WIDEN
         assert normal_spread > 0, "Normal spread must be positive"
-        assert widen_spread > normal_spread, (
-            f"WIDEN spread ({widen_spread}) must exceed NORMAL ({normal_spread})"
+        # WIDEN must numerically expand the top-of-book spread by the configured factor.
+        assert widen_spread >= int(normal_spread * widen_ctx.config.widen_factor), (
+            f"WIDEN spread ({widen_spread}) must be >= normal*factor "
+            f"({int(normal_spread * widen_ctx.config.widen_factor)})"
         )
 
     @pytest.mark.asyncio

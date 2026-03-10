@@ -48,8 +48,8 @@ async def test_widen_increases_effective_spread_by_configured_factor() -> None:
     assert normal_ctx.defense_level == DefenseLevel.NORMAL
     assert widen_ctx.defense_level == DefenseLevel.WIDEN
     assert normal_spread > 0, "Normal spread must be positive"
-    # WIDEN must numerically expand the top-of-book spread.
-    assert widen_spread > normal_spread
+    # WIDEN must numerically expand the top-of-book spread by the configured factor.
+    assert widen_spread >= int(normal_spread * widen_ctx.config.widen_factor)
 
 
 @pytest.mark.asyncio

@@ -87,7 +87,9 @@ async def test_phase_manager_update_called_once_per_cycle() -> None:
 async def test_reconcile_loop_invokes_reconciler_and_stops_after_one_pass() -> None:
     ctx = make_context()
     reconciler = AsyncMock(spec=AMMReconciler)
-    reconciler.fetch_balance.return_value = {"balance": 100_00}
+    # Use the actual API response format: {"data": {"balance_cents": ..., "frozen_balance_cents": ...}}
+    _balance_resp = {"data": {"balance_cents": 100_00, "frozen_balance_cents": 0}}
+    reconciler.fetch_balance.return_value = _balance_resp
     reconciler.reconcile.return_value = {ctx.market_id: {"drifted": False, "fields": []}}
 
     async def one_pass_sleep(_: float) -> None:
@@ -101,5 +103,5 @@ async def test_reconcile_loop_invokes_reconciler_and_stops_after_one_pass() -> N
     reconciler.reconcile.assert_awaited_once_with(
         [ctx.market_id],
         n_markets_total=1,
-        balance_resp={"balance": 100_00},
+        balance_resp=_balance_resp,
     )
