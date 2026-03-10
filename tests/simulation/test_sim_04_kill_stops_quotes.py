@@ -14,13 +14,17 @@ from tests.simulation.conftest import (
 )
 
 
+# Use MATURE gamma + high kappa for reasonable spread (not pinned to 1/99).
+_KILL_CFG: dict = {"gamma_tier": "MATURE", "kappa": 10.0}
+
+
 @pytest.mark.asyncio
 async def test_kill_switch_cancels_existing_orders_and_freezes_new_placements(
     mock_exchange: dict,
     fake_redis_async,
 ) -> None:
-    normal_config = make_config(market_id="sim-kill", max_per_market_loss_cents=25_000)
-    kill_config = make_config(market_id="sim-kill", inventory_skew_kill=0.80, max_per_market_loss_cents=25_000)
+    normal_config = make_config(market_id="sim-kill", max_per_market_loss_cents=25_000, **_KILL_CFG)
+    kill_config = make_config(market_id="sim-kill", inventory_skew_kill=0.80, max_per_market_loss_cents=25_000, **_KILL_CFG)
     cache = InventoryCache(fake_redis_async)
     client = mock_exchange["client"]
 
@@ -59,7 +63,7 @@ async def test_pnl_kill_switch_places_no_new_orders(
     mock_exchange: dict,
     fake_redis_async,
 ) -> None:
-    config = make_config(market_id=f"sim-pnl-kill-{loss_cents}", max_per_market_loss_cents=loss_cents)
+    config = make_config(market_id=f"sim-pnl-kill-{loss_cents}", max_per_market_loss_cents=loss_cents, **_KILL_CFG)
     ctx = make_live_context(config, make_inventory(yes_volume=200, no_volume=200, cash_cents=50_000))
     ctx.initial_inventory_value_cents = ctx.inventory.total_value_cents(50) + loss_cents
     cache = InventoryCache(fake_redis_async)

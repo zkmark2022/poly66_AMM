@@ -32,7 +32,10 @@ class FlakyOracle:
 async def test_oracle_recovers_from_repeated_stale_cycles_without_locking_one_side(
     fail_cycles: int,
 ) -> None:
-    config = make_config(oracle_slug="test-oracle", defense_cooldown_cycles=2)
+    config = make_config(
+        oracle_slug="test-oracle", defense_cooldown_cycles=2,
+        gamma_tier="MATURE", kappa=10.0,
+    )
     ctx = make_context(
         inventory=make_inventory(yes_volume=258, no_volume=142),
         config=config,
@@ -60,7 +63,10 @@ async def test_oracle_recovers_from_repeated_stale_cycles_without_locking_one_si
 
 @pytest.mark.asyncio
 async def test_oracle_recovery_returns_to_normal_on_first_healthy_cycle() -> None:
-    config = make_config(oracle_slug="test-oracle", defense_cooldown_cycles=3)
+    config = make_config(
+        oracle_slug="test-oracle", defense_cooldown_cycles=3,
+        gamma_tier="MATURE", kappa=10.0,
+    )
     ctx = make_context(
         inventory=make_inventory(yes_volume=258, no_volume=142),
         config=config,

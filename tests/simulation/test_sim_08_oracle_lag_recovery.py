@@ -25,7 +25,10 @@ class ToggleOracle:
 
 @pytest.mark.asyncio
 async def test_oracle_stale_enters_one_side_and_recovers_to_normal_spread() -> None:
-    config = make_config(oracle_slug="test-oracle", defense_cooldown_cycles=2)
+    config = make_config(
+        oracle_slug="test-oracle", defense_cooldown_cycles=2,
+        gamma_tier="MATURE", kappa=10.0,
+    )
     ctx = make_context(
         inventory=make_inventory(yes_volume=258, no_volume=142),
         config=config,
