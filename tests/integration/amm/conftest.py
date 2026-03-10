@@ -88,6 +88,12 @@ def setup_default_routes(
     router.get("/account/balance").mock(
         return_value=httpx.Response(200, json=BALANCE_RESPONSE)
     )
+    # API client calls GET /positions (list endpoint), not /positions/{market_id}
+    router.get("/positions").mock(
+        return_value=httpx.Response(200, json={
+            "data": {"items": [{"market_id": market_id, **positions_response.get("data", {})}]}
+        })
+    )
     router.get(f"/positions/{market_id}").mock(
         return_value=httpx.Response(200, json=positions_response)
     )
