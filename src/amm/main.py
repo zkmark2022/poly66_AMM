@@ -297,6 +297,9 @@ async def quote_cycle(
     # Step 4: Execute — send order diff to API
     await order_mgr.execute_intents(intents, ctx.market_id)
 
+    # Record freshness timestamp so /state can report last_requote_ms
+    ctx.last_requote_at = time.monotonic()
+
 
 async def run_market(
     ctx: MarketContext,
@@ -368,6 +371,7 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
     )
     contexts = await initializer.initialize(market_ids)
     health_state.markets_active = len(contexts)
+    health_state.contexts = contexts
     health_state.ready = True
 
     # Shutdown handler
@@ -467,8 +471,9 @@ async def amm_main(market_ids: list[str] | None = None) -> None:
                 _oracle_refresh_loop(market_oracle, _oracle_interval, {mid: contexts[mid]}),
                 name=f"oracle-refresh-{mid}",
             ))
+    _health_port = int(os.environ.get("AMM_HEALTH_PORT", "8001"))
     background_tasks.append(asyncio.create_task(
-        run_health_server(health_state),
+        run_health_server(health_state, port=_health_port),
         name="health-server",
     ))
 
