@@ -48,9 +48,9 @@ class TestMarketStateSnapshot:
         assert snap.to_dict()["uptime_seconds"] == round(42.9999, 1)
 
     def test_last_updated_at_is_set_on_creation(self) -> None:
-        before = time.monotonic()
+        before = time.time()
         snap = _make_snapshot()
-        after = time.monotonic()
+        after = time.time()
         assert before <= snap.last_updated_at <= after
 
 

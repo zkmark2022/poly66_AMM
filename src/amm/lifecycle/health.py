@@ -31,7 +31,7 @@ class MarketStateSnapshot:
     session_pnl_cents: int
     uptime_seconds: float
     winding_down: bool
-    last_updated_at: float = field(default_factory=time.monotonic)
+    last_updated_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
         return {
