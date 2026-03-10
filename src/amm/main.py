@@ -19,7 +19,7 @@ from src.amm.connector.api_client import AMMApiClient
 from src.amm.connector.auth import TokenManager
 from src.amm.connector.order_manager import OrderManager
 from src.amm.connector.trade_poller import TradePoller
-from src.amm.lifecycle.health import HealthState, run_health_server
+from src.amm.lifecycle.health import HealthState, MarketStateSnapshot, run_health_server
 from src.amm.lifecycle.initializer import AMMInitializer
 from src.amm.lifecycle.reinvest import (
     drop_buy_side_intents_when_cash_depleted,
@@ -345,6 +345,7 @@ async def run_market(
     ctx: MarketContext,
     services: dict[str, Any],
     oracle: PolymarketOracle | None = None,
+    health_state: HealthState | None = None,
 ) -> None:
     """Run quote cycles for a single market until shutdown requested."""
     cycle_services = dict(services)
@@ -354,6 +355,17 @@ async def run_market(
         try:
             await quote_cycle(ctx, **cycle_services)
             consecutive_failures = 0
+            if health_state is not None:
+                health_state.market_states[ctx.market_id] = MarketStateSnapshot(
+                    market_id=ctx.market_id,
+                    phase=ctx.phase.value,
+                    defense_level=ctx.defense_level.value,
+                    inventory_skew=ctx.inventory.inventory_skew,
+                    active_orders_count=len(ctx.active_orders),
+                    session_pnl_cents=ctx.session_pnl_cents,
+                    uptime_seconds=time.monotonic() - ctx.started_at,
+                    winding_down=ctx.winding_down,
+                )
         except asyncio.CancelledError:
             raise
         except httpx.HTTPStatusError as e:
@@ -409,9 +421,10 @@ async def run_market_with_health(
     oracle: PolymarketOracle | None = None,
 ) -> None:
     try:
-        await run_market(ctx, services, oracle=oracle)
+        await run_market(ctx, services, oracle=oracle, health_state=health_state)
     finally:
         health_state.markets_active = max(0, health_state.markets_active - 1)
+        health_state.market_states.pop(ctx.market_id, None)
 
 
 async def reconcile_loop(
