@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import time
 
-import pytest
 from httpx import AsyncClient, ASGITransport
 
 from src.amm.lifecycle.health import (
