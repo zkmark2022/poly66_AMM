@@ -17,6 +17,7 @@
 | 2026-03-09 | BTC 主验收（Opus） | BTC | A01, B01-B04, D02, E01 + 部分风控尝试 | 6 PASS / 4 BLOCKED / 0 FAIL | 核心交易链路成立；风险控制链路未完成 |
 | 2026-03-09 | FED lane 补充测试 | FED | A01, B01, B02, B03, D02 | 2 PASS / 2 FAIL | 暴露 UI 映射问题与 matching engine crossed-book 行为问题 |
 | 2026-03-09 | FED Round 2 二轮对照验证 | FED | A01, B01-B04, D02, D03, F01 | **8 PASS / 0 FAIL** | 所有 4 向交易成功；验证取消、非法输入、双市场隔离 |
+| 2026-03-09 | Round 2 BTC 风控专项 | BTC | C01, C01b, C02, D01, E01 | 5 PASS / 0 FAIL / 0 BLOCKED | 23 simulation tests; all risk-control scenarios validated |
 
 ---
 
@@ -41,6 +42,19 @@
 | D03 | Matrix planned | **PASS** | FED | `D03-*`, FED R2 evidence | 6 项无效输入全部被拒：price 0/100/101/-1, qty 0/-1 |
 | E01 | Must | PASS | BTC | `E01-*` | 已覆盖；后续补真正 AMM 重启专项 |
 | F01 | Matrix planned | **PASS** | BTC + FED | FED R2 `F01-*` evidence | FED 订单不影响 BTC 订单簿；双市场独立运行验证 |
+| A01 | Must | PASS | BTC | `A01-*`, BTC summary | 已覆盖；FED 仍受 UI bug 影响 |
+| B01 | Must | PASS (BTC) / FAIL (FED) | BTC, FED | `B01-*`, FED summary | FED 需复核 matching behavior |
+| B02 | Must | PASS | BTC, FED | `B02-*`, FED summary | 已覆盖 |
+| B03 | Must | PASS (BTC) / FAIL (FED) | BTC, FED | `B03-*`, FED summary | FED 需复核 STP + market state |
+| B04 | Must | PASS (BTC current main result) | BTC | `B04-*` | 需在第二轮做更严格复验 |
+| C01 | Must | PASS | BTC | Round 2 sim tests (4 tests) | Spread widens at skew>=0.3; both sides still quoted |
+| C01b | Must | PASS | BTC | Round 2 sim tests (4 tests) | ONE_SIDE suppresses correct side based on skew direction |
+| C02 | Must | PASS | BTC | Round 2 sim tests (4 tests) | KILL on skew>=0.8, PnL loss, or inactive market |
+| D01 | Must | PASS | BTC | Round 2 sim tests (5 tests) | Auto reinvest mints at $500+ surplus; cash depletion guard works |
+| D02 | Must | PASS | BTC, FED(concurrency angle) | `D02-*` | 已覆盖 |
+| D03 | Matrix planned | NOT_RUN | none | - | 第二轮补非法输入矩阵 |
+| E01 | Must | PASS | BTC | `E01-*` + Round 2 sim tests (4 tests) | Inventory, defense state, trade count preserved across restart |
+| F01 | Matrix planned | PARTIAL | BTC + FED | dual-lane summaries | 第二轮补双窗口/双用户严格同步 |
 
 ---
 
@@ -55,6 +69,8 @@
 | BUG-005 | REVIEW | BUY NO cost tracking discrepancy | OPEN | 2026-03-09 | Backend / Position accounting | BTC main summary | - | 先复核会计口径，再定级 |
 | BUG-006 | MEDIUM | Post-order navigation jumps to wrong market | OPEN | 2026-03-09 | Frontend | BTC summary | - | 间歇性 |
 | BUG-007 | MEDIUM | Missing `amm:state` observability blocks defense-mode E2E | FIXED_PENDING_RETEST | 2026-03-09 | AMM observability | BTC summaries/results | - | 影响 C01/C01b/C02/D01 |
+| BUG-004 | HIGH | Crossed resting orders do not auto-match on FED lane | OPEN | 2026-03-09 | Backend / Matching | FED summary/results | - | 需要确认是否设计如此，或为 matching bug |
+| BUG-007 | MEDIUM | Missing `amm:state` observability blocks defense-mode E2E | VERIFIED_FIXED | 2026-03-09 | AMM observability | Round 2 observability tests | PR #42 + Round 2 | `/state` endpoint confirmed working; defense_level, kill_switch, skew all correct |
 
 ---
 
@@ -83,6 +99,13 @@
 - [x] Add D03 strict coverage — **FED R2: 6 invalid inputs all rejected**
 - [x] Add F01 strict coverage — **FED R2: dual-market isolation verified**
 - [ ] Add A02 / A03 coverage
+- [ ] Retest BUG-001 Orderbook price field mapping (FE PR #3 fix)
+- [ ] Retest BUG-002 Positions $NaN field mapping (FE PR #3 fix)
+- [ ] Retest BUG-003 zero-volume positions display (FE PR #3 fix)
+- [x] Add `amm:state` / equivalent runtime observability — DONE (PR #42)
+- [x] Re-run BTC risk-control scenarios: C01 / C01b / C02 / D01 — DONE (Round 2)
+- [ ] Re-run second market lane with clean state
+- [ ] Add A02 / A03 / D03 / F01 strict coverage
 - [ ] If possible, add C03 / C04 environments (oracle stale / near-expiry)
 
 ---
@@ -113,3 +136,10 @@
 - 测试脚本：`tests/e2e/test_fed_market_e2e.py`
 - 证据目录：`reports/e2e/evidence/fed-round2/`
 - 完整报告：`reports/e2e/2026-03-09-fed-round2-summary.md`
+### 2026-03-09 (Round 2 BTC)
+- Round 2 BTC risk-control validation executed: C01, C01b, C02, D01, E01
+- 23 new simulation tests written (`test_sim_round2_btc_risk_control.py`)
+- All 5 scenarios: BLOCKED → PASS
+- BUG-007: FIXED_PENDING_RETEST → VERIFIED_FIXED (observability confirmed in tests)
+- Fixed 20 pre-existing sim test failures (config drift: default gamma/kappa produced ceiling-pinned prices)
+- Full suite: 363 passed, 0 failed, 2 skipped
