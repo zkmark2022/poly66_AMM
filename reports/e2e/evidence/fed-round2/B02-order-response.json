@@ -1,0 +1,32 @@
+{
+  "order": {
+    "id": "306699846960545792",
+    "client_order_id": "e2e-r2-no-buy-b69ea7bf",
+    "market_id": "MKT-FED-RATE-CUT-2026Q2",
+    "original_side": "NO",
+    "original_direction": "BUY",
+    "original_price_cents": 55,
+    "book_type": "SYNTHETIC_SELL",
+    "price_type": "LIMIT",
+    "time_in_force": "IOC",
+    "quantity": 1,
+    "filled_quantity": 1,
+    "remaining_quantity": 0,
+    "frozen_amount": 0,
+    "frozen_asset_type": "FUNDS",
+    "status": "FILLED",
+    "cancel_reason": null,
+    "created_at": "2026-03-10T06:09:01.723741Z",
+    "updated_at": "2026-03-10T06:09:01.723741Z"
+  },
+  "trades": [
+    {
+      "buy_order_id": "306699761862311936",
+      "sell_order_id": "306699846960545792",
+      "price": 45,
+      "quantity": 1,
+      "scenario": "MINT"
+    }
+  ],
+  "netting_result": null
+}

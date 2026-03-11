@@ -1,0 +1,82 @@
+{
+  "balance": {
+    "user_id": "30497991-c0cf-4917-9aae-acf0ec2363d8",
+    "available_balance_cents": 9188,
+    "available_balance_display": "$91.88",
+    "frozen_balance_cents": 321,
+    "frozen_balance_display": "$3.21",
+    "total_balance_cents": 9509,
+    "total_balance_display": "$95.09"
+  },
+  "position": {
+    "yes_volume": 4,
+    "no_volume": 1,
+    "yes_cost_sum": 220,
+    "no_cost_sum": 55
+  },
+  "orderbook": {
+    "market_id": "MKT-FED-RATE-CUT-2026Q2",
+    "yes": {
+      "bids": [
+        {
+          "price_cents": 45,
+          "total_quantity": 10
+        },
+        {
+          "price_cents": 40,
+          "total_quantity": 5
+        },
+        {
+          "price_cents": 35,
+          "total_quantity": 5
+        }
+      ],
+      "asks": [
+        {
+          "price_cents": 55,
+          "total_quantity": 11
+        },
+        {
+          "price_cents": 60,
+          "total_quantity": 5
+        },
+        {
+          "price_cents": 65,
+          "total_quantity": 5
+        }
+      ]
+    },
+    "no": {
+      "bids": [
+        {
+          "price_cents": 45,
+          "total_quantity": 11
+        },
+        {
+          "price_cents": 40,
+          "total_quantity": 5
+        },
+        {
+          "price_cents": 35,
+          "total_quantity": 5
+        }
+      ],
+      "asks": [
+        {
+          "price_cents": 55,
+          "total_quantity": 10
+        },
+        {
+          "price_cents": 60,
+          "total_quantity": 5
+        },
+        {
+          "price_cents": 65,
+          "total_quantity": 5
+        }
+      ]
+    },
+    "last_trade_price_cents": 45,
+    "updated_at": "2026-03-10T06:09:02.887551+00:00"
+  }
+}
