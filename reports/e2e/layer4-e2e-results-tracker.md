@@ -53,7 +53,7 @@
 | BUG-001 | HIGH | Orderbook UI price renders as bare `¢` | ✅ VERIFIED_FIXED | 2026-03-09 | Frontend | `A01-orderbook.png` | Frontend PR #3 (merged 2026-03-11) | Backend 侧 2026-03-12 clean-state rerun prices_valid=True 验证通过 |
 | BUG-002 | HIGH | Positions page shows `$NaN` | ✅ VERIFIED_FIXED | 2026-03-09 | Frontend | `D01-positions-page-NaN-bug.png` | Frontend PR #3 (merged 2026-03-11) | Fix: `calculatePositionValueCents` 使用 `?? 0`；backend 侧验证通过 |
 | BUG-003 | MEDIUM | Zero-volume positions still counted/displayed | ✅ VERIFIED_FIXED | 2026-03-09 | Frontend | BTC main summary | Frontend PR #3 (merged 2026-03-11) | Fix: `activePositions = positions.filter(qty > 0)`；backend 侧验证通过 |
-| BUG-005 | REVIEW | BUY NO cost tracking discrepancy | OPEN | 2026-03-09 | Backend / Position accounting | BTC main summary | - | 先复核会计口径（limit price vs execution price 记账）再定级 |
+| BUG-005 | MEDIUM | BUY NO MINT price improvement frozen leak | ✅ VERIFIED_FIXED | 2026-03-09 | Backend / clearing/mint.py | BTC main summary | Backend PR #20 (merged 2026-03-12) | Fix: sell_original_price added to TradeResult; clear_mint() now refunds price improvement surplus to available_balance |
 | BUG-006 | MEDIUM | Post-order navigation jumps to wrong market | OPEN | 2026-03-09 | Frontend | BTC summary | - | 间歇性；需 browser E2E 复现 |
 
 ---
@@ -70,6 +70,7 @@
 
 | Bug ID | Closed Date | Title | Resolution | Reference |
 |--------|-------------|-------|------------|-----------|
+| BUG-005 | 2026-03-12 | BUY NO MINT price improvement frozen leak | FIXED — 376 tests pass; surplus refund verified | Backend PR #20 |
 | BUG-R1 | 2026-03-09 | `/amm/mint` 500 due to trades schema drift | Fixed by PR #19 merge | Backend PR #19 |
 | BUG-R2 | 2026-03-09 | PR #17 CI missing checks / JWT secret / blocking mypy | Fixed and green | Backend PR #17 |
 | BUG-004 | 2026-03-11 | Crossed resting orders do not auto-match on FED lane | **误报关闭** | 代码审查确认：GTC 和 IOC 走相同 `match_order` 路径，每笔 incoming 单都会触发撮合。R1 FAIL 根因是测试账号问题（同账号充当对手方 → STP 阻止撮合），非 matching engine bug。真实 edge case 已记录为 IMPRV-001（低优先级改进）。 |
@@ -85,7 +86,7 @@
 |----------|------|------|
 | P0 | ~~BUG-001/002/003 retest~~ | ✅ 完成（2026-03-12 clean-state 8/8 PASS） |
 | P0 | ~~BUG-004 定性分析~~ | ✅ 完成（误报，已关闭） |
-| P1 | BUG-005 BUY NO 会计口径复核 | OPEN |
+| P1 | ~~BUG-005 BUY NO 会计口径复核~~ | ✅ FIXED (PR #20 merged) |
 | P1 | A02/A03 场景覆盖 | NOT_RUN |
 | P1 | F01 严格版（双用户/双窗口并发） | PARTIAL |
 | P2 | BUG-006 post-order 导航 browser 复现 | OPEN |
@@ -123,3 +124,9 @@
 - `prices_valid=True`，所有字段映射正确，backend 侧验证完成
 - BUG-001/002/003 状态 → VERIFIED_FIXED
 - 更新 Tracker：去重 Scenario Coverage 表、整理 Follow-up Queue
+### 2026-03-12 (late)
+- BUG-005 代码审查完成：confirmed frozen_balance leak in clear_mint() for MINT price improvement
+- Root cause: refund=0 for seller; fix adds sell_original_price to TradeResult
+- Backend PR #20 opened by Claude Sonnet 4.6 agent, reviewed + merged
+- 376 unit tests pass including 2 new BUG-005 specific tests
+- BUG-005 → VERIFIED_FIXED
