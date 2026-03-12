@@ -19,6 +19,7 @@
 | 2026-03-09 | FED Round 2 二轮对照验证 | FED | A01, B01-B04, D02, D03, F01 | **8 PASS / 0 FAIL** | 独立账号（demo + amm_market_maker）；所有 4 向交易成功 |
 | 2026-03-09 | BTC Round 2 风控专项 | BTC | C01, C01b, C02, D01, E01 | **5 PASS / 0 FAIL** | 23 simulation tests；风控链路全部验证 |
 | 2026-03-12 | FED clean-state 验证（BUG-001/002/003 retest） | FED | A01, B01-B04, D02, D03, F01 | **8 PASS / 0 FAIL** | PR #3 merge 后 backend 侧全部通过；prices_valid=True，字段映射正确 |
+| 2026-03-12 | Layer 4 Round 3 收尾 | BTC + FED | A02, A03, F01(strict), BUG-006 | **4 PASS / 0 FAIL** | A02 多市场可见性；A03 停止反映；F01 并发10ms；BUG-006 CANNOT_REPRODUCE |
 
 ---
 
@@ -27,8 +28,8 @@
 | Scenario | Original Plan | Current Status | Market(s) Covered | Evidence | Notes |
 |----------|---------------|----------------|-------------------|----------|-------|
 | A01 | Must | ✅ PASS | BTC, FED | `A01-*`, BTC summary, FED R2 summary | 双市场均通过 |
-| A02 | Planned (matrix) | NOT_RUN | none | - | 第三轮补多 market 可见性 |
-| A03 | Planned (matrix) | NOT_RUN | none | - | 第三轮补 AMM 停止反映 |
+| A02 | Planned (matrix) | ✅ PASS | BTC + FED | `round3/A02-*.json` | 同时 2 ACTIVE market，FED: YES asks@60¢/NO bids@40¢；BTC: 多级双边挂单 |
+| A03 | Planned (matrix) | ✅ PASS | BTC + FED | `round3/A03-*.json` | 停止后 FED 挂单清零；BTC AMM asks 消失；health server offline；OPEN orders=0 |
 | B01 | Must | ✅ PASS | BTC, FED | `B01-*`, FED R2 evidence | R1 FAIL 因 STP（测试账号问题），R2 正确账号 8/8 PASS |
 | B02 | Must | ✅ PASS | BTC, FED | `B02-*`, FED R2 evidence | 双市场一致通过 |
 | B03 | Must | ✅ PASS | BTC, FED | `B03-*`, FED R2 evidence | FED R2: SELL YES @45c 正确执行 |
@@ -42,7 +43,7 @@
 | D02 | Must | ✅ PASS | BTC, FED | `D02-*`, FED R2 evidence | 双市场：下单→OPEN→取消→冻结释放 |
 | D03 | Matrix planned | ✅ PASS | FED | `D03-*`, FED R2 evidence | 6 项无效输入全部被拒 |
 | E01 | Must | ✅ PASS | BTC | `E01-*` + Round 2 sim tests (4 tests) | inventory/defense state/trade count 重启后恢复 |
-| F01 | Matrix planned | PARTIAL | BTC + FED | FED R2 `F01-*` evidence | FED 单不影响 BTC 盘口；第三轮补双用户严格并发测试 |
+| F01 | Matrix planned | ✅ PASS | FED | `round3/F01-concurrent-evidence.json` | asyncio.gather 并发10ms；demo+demo2同时下单；均 HTTP 201；余额冻结正确；无竞态 |
 
 ---
 
@@ -54,7 +55,7 @@
 | BUG-002 | HIGH | Positions page shows `$NaN` | ✅ VERIFIED_FIXED | 2026-03-09 | Frontend | `D01-positions-page-NaN-bug.png` | Frontend PR #3 (merged 2026-03-11) | Fix: `calculatePositionValueCents` 使用 `?? 0`；backend 侧验证通过 |
 | BUG-003 | MEDIUM | Zero-volume positions still counted/displayed | ✅ VERIFIED_FIXED | 2026-03-09 | Frontend | BTC main summary | Frontend PR #3 (merged 2026-03-11) | Fix: `activePositions = positions.filter(qty > 0)`；backend 侧验证通过 |
 | BUG-005 | MEDIUM | BUY NO MINT price improvement frozen leak | ✅ VERIFIED_FIXED | 2026-03-09 | Backend / clearing/mint.py | BTC main summary | Backend PR #20 (merged 2026-03-12) | Fix: sell_original_price added to TradeResult; clear_mint() now refunds price improvement surplus to available_balance |
-| BUG-006 | MEDIUM | Post-order navigation jumps to wrong market | OPEN | 2026-03-09 | Frontend | BTC summary | - | 间歇性；需 browser E2E 复现 |
+| BUG-006 | MEDIUM | Post-order navigation jumps to wrong market | CANNOT_REPRODUCE | 2026-03-09 | Frontend | `round3/BUG006-*.png` | - | 2026-03-12 browser 实测 FED+BTC 各1次，导航均正确；标记 CANNOT_REPRODUCE |
 
 ---
 
@@ -87,9 +88,9 @@
 | P0 | ~~BUG-001/002/003 retest~~ | ✅ 完成（2026-03-12 clean-state 8/8 PASS） |
 | P0 | ~~BUG-004 定性分析~~ | ✅ 完成（误报，已关闭） |
 | P1 | ~~BUG-005 BUY NO 会计口径复核~~ | ✅ FIXED (PR #20 merged) |
-| P1 | A02/A03 场景覆盖 | NOT_RUN |
-| P1 | F01 严格版（双用户/双窗口并发） | PARTIAL |
-| P2 | BUG-006 post-order 导航 browser 复现 | OPEN |
+| P1 | A02/A03 场景覆盖 | ✅ PASS (2026-03-12) |
+| P1 | F01 严格版（双用户/双窗口并发） | ✅ PASS (2026-03-12) |
+| P2 | BUG-006 post-order 导航 browser 复现 | ✅ CANNOT_REPRODUCE |
 | P2 | IMPRV-001 rebuild crossed-check | LOW |
 | P3 | C03/C04 需要特殊环境（oracle stale / near-expiry） | 待排期 |
 
@@ -130,3 +131,11 @@
 - Backend PR #20 opened by Claude Sonnet 4.6 agent, reviewed + merged
 - 376 unit tests pass including 2 new BUG-005 specific tests
 - BUG-005 → VERIFIED_FIXED
+
+### 2026-03-12 (Round 3 收尾)
+- AMM bot fix: `client_order_id` 字段补充（backend schema 更新后 AMM 未跟进，导致 422）
+- A02: BTC + FED 同时 ACTIVE，双边挂单均可见 → PASS
+- A03: AMM 停止后 FED 挂单清零，BTC AMM asks 消失，health server offline → PASS
+- F01: asyncio.gather 并发 10ms，demo+demo2 均 HTTP 201，余额冻结正确 → PASS
+- BUG-006: FED+BTC 各 1 次 browser E2E，导航均正确 → CANNOT_REPRODUCE
+- PR #49 created: test/layer4-round3-final
