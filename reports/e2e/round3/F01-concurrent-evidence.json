@@ -1,0 +1,139 @@
+{
+  "test": "F01-strict-concurrent",
+  "timestamp": "2026-03-12T19:07:27.670121+00:00",
+  "market_id": "MKT-FED-RATE-CUT-2026Q2",
+  "elapsed_seconds": 0.010289907455444336,
+  "both_success": true,
+  "results": [
+    {
+      "user": "demo",
+      "success": true,
+      "http_status": 201,
+      "response": {
+        "order": {
+          "id": "307620521569157120",
+          "client_order_id": "f01-375ffd4fa2ad",
+          "market_id": "MKT-FED-RATE-CUT-2026Q2",
+          "original_side": "YES",
+          "original_direction": "BUY",
+          "original_price_cents": 60,
+          "book_type": "NATIVE_BUY",
+          "price_type": "LIMIT",
+          "time_in_force": "GTC",
+          "quantity": 5,
+          "filled_quantity": 0,
+          "remaining_quantity": 5,
+          "frozen_amount": 301,
+          "frozen_asset_type": "FUNDS",
+          "status": "OPEN",
+          "cancel_reason": null,
+          "created_at": "2026-03-12T19:07:27.655716Z",
+          "updated_at": "2026-03-12T19:07:27.655716Z"
+        },
+        "trades": [],
+        "netting_result": null
+      }
+    },
+    {
+      "user": "demo2",
+      "success": true,
+      "http_status": 201,
+      "response": {
+        "order": {
+          "id": "307620521573351424",
+          "client_order_id": "f01-87b98d7e1425",
+          "market_id": "MKT-FED-RATE-CUT-2026Q2",
+          "original_side": "YES",
+          "original_direction": "BUY",
+          "original_price_cents": 60,
+          "book_type": "NATIVE_BUY",
+          "price_type": "LIMIT",
+          "time_in_force": "GTC",
+          "quantity": 5,
+          "filled_quantity": 0,
+          "remaining_quantity": 5,
+          "frozen_amount": 301,
+          "frozen_asset_type": "FUNDS",
+          "status": "OPEN",
+          "cancel_reason": null,
+          "created_at": "2026-03-12T19:07:27.656822Z",
+          "updated_at": "2026-03-12T19:07:27.656822Z"
+        },
+        "trades": [],
+        "netting_result": null
+      }
+    }
+  ],
+  "pre_balances": {
+    "demo": {
+      "user_id": "30497991-c0cf-4917-9aae-acf0ec2363d8",
+      "available_balance_cents": 9079,
+      "available_balance_display": "$90.79",
+      "frozen_balance_cents": 348,
+      "frozen_balance_display": "$3.48",
+      "total_balance_cents": 9427,
+      "total_balance_display": "$94.27"
+    },
+    "demo2": {
+      "user_id": "9f31baa8-c6db-496e-92bd-46954bc29012",
+      "available_balance_cents": 99699,
+      "available_balance_display": "$996.99",
+      "frozen_balance_cents": 0,
+      "frozen_balance_display": "$0.00",
+      "total_balance_cents": 99699,
+      "total_balance_display": "$996.99"
+    }
+  },
+  "post_balances": {
+    "demo": {
+      "user_id": "30497991-c0cf-4917-9aae-acf0ec2363d8",
+      "available_balance_cents": 8778,
+      "available_balance_display": "$87.78",
+      "frozen_balance_cents": 649,
+      "frozen_balance_display": "$6.49",
+      "total_balance_cents": 9427,
+      "total_balance_display": "$94.27"
+    },
+    "demo2": {
+      "user_id": "9f31baa8-c6db-496e-92bd-46954bc29012",
+      "available_balance_cents": 99398,
+      "available_balance_display": "$993.98",
+      "frozen_balance_cents": 301,
+      "frozen_balance_display": "$3.01",
+      "total_balance_cents": 99699,
+      "total_balance_display": "$996.99"
+    }
+  },
+  "pre_positions": {
+    "demo": {
+      "market_id": "MKT-FED-RATE-CUT-2026Q2",
+      "yes_volume": 5,
+      "yes_cost_sum": 295,
+      "no_volume": 0,
+      "no_cost_sum": 0
+    },
+    "demo2": {
+      "market_id": "MKT-FED-RATE-CUT-2026Q2",
+      "yes_volume": 5,
+      "yes_cost_sum": 300,
+      "no_volume": 0,
+      "no_cost_sum": 0
+    }
+  },
+  "post_positions": {
+    "demo": {
+      "market_id": "MKT-FED-RATE-CUT-2026Q2",
+      "yes_volume": 5,
+      "yes_cost_sum": 295,
+      "no_volume": 0,
+      "no_cost_sum": 0
+    },
+    "demo2": {
+      "market_id": "MKT-FED-RATE-CUT-2026Q2",
+      "yes_volume": 5,
+      "yes_cost_sum": 300,
+      "no_volume": 0,
+      "no_cost_sum": 0
+    }
+  }
+}

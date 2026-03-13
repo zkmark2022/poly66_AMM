@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import time
+import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -100,9 +102,11 @@ class OrderManager:
             return
 
         try:
+            new_client_order_id = f"amm-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
             placed = await self._api.replace_order(
                 old_order.order_id,
                 {
+                    "client_order_id": new_client_order_id,
                     "market_id": market_id,
                     "side": new_intent.side,
                     "direction": new_intent.direction,
@@ -152,7 +156,9 @@ class OrderManager:
             )
             return
         try:
+            client_order_id = f"amm-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
             resp = await self._api.place_order({
+                "client_order_id": client_order_id,
                 "market_id": market_id,
                 "side": intent.side,
                 "direction": intent.direction,
